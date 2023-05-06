@@ -1,0 +1,483 @@
+- name: Install Docker
+  hosts: debian_nodes
+  tasks:
+    - name: Install dependencies
+      ansible.builtin.apt:
+        name:
+          - apt-transport-https
+          - ca-certificates
+          - curl
+          - gnupg-agent
+          - software-properties-common
+          - lsb-release
+        state: present
+        update_cache: true
+
+    - name: Add GPG Key
+      ansible.builtin.get_url:
+        url: https://download.docker.com/linux/debian/gpg
+        dest: /etc/apt/trusted.gpg.d/docker.gpg
+        mode: "0444"
+
+    - name: Add docker repository to apt
+      ansible.builtin.apt_repository:
+        repo: deb https://download.docker.com/linux/debian {{ ansible_distribution_release }} stable
+        state: present
+
+    - name: Install docker
+      ansible.builtin.apt:
+        name:
+          - docker-ce-cli
+          - docker-ce
+          - containerd.io
+        state: present
+        update_cache: true
+
+    - name: Check docker is active
+      ansible.builtin.service:
+        name: docker
+        state: started
+        enabled: true
+    - name: Ensure group "docker" exists
+      ansible.builtin.group:
+        name: docker
+        state: present
+
+- name: Install Weave
+  hosts: nomad
+
+  vars:
+    weave_cidr: "172.30.0.0/16"
+    metrics_addr: "0.0.0.0:21049"
+
+  tasks:
+    - name: Install Weave
+      ansible.builtin.uri:
+        dest: /usr/local/bin/weave
+        status_code:
+          - 200
+          - 304
+        url: https://git.io/weave
+        mode: "0755"
+      notify:
+        - Restart Weave
+
+    - name: Create Systemd Service
+      ansible.builtin.copy:
+        dest: /etc/systemd/system/weave.service
+        mode: "0755"
+        content: |
+          [Unit]
+          Description=Weave Network
+          Documentation=http://docs.weave.works/weave/latest_release/
+          Requires=docker.service
+          After=docker.service
+          [Service]
+          EnvironmentFile=-/etc/sysconfig/weave
+          ExecStartPre=/usr/local/bin/weave launch --no-restart --no-dns --ipalloc-range $IP_CIDR --metrics-addr={{ metrics_addr }} $PEERS
+          ExecStart=/usr/bin/docker attach weave
+          ExecStop=/usr/local/bin/weave stop
+          [Install]
+          WantedBy=multi-user.target
+      notify:
+        - Reload Systemd Deamon
+
+    - name: Ensure sysconfig Directory Exists
+      ansible.builtin.file:
+        path: /etc/sysconfig
+        state: directory
+        mode: "0644"
+
+    - name: Create Weave Peers File
+      ansible.builtin.copy:
+        dest: /etc/sysconfig/weave
+        content: |
+          PEERS="{% for host in groups['nomad'] -%}
+          {{ hostvars[host].ansible_default_ipv4.address | ansible.utils.ipwrap }}{%if not loop.last %} {% endif %}
+          {%- endfor %}"
+          IP_CIDR="{{ weave_cidr }}"
+        mode: "0644"
+      notify:
+        - Restart Weave
+
+  handlers:
+    - name: Reload Systemd Deamon
+      ansible.builtin.systemd_service:
+        daemon_reload: true
+    - name: Restart Weave
+      ansible.builtin.systemd:
+        state: restarted
+        name: weave
+
+- name: Install Nomad
+  hosts: nomad
+
+  vars:
+    nomad_config_path: /etc/nomad.d  # nomad configurations' path
+    nomad_node_path: "{{ nomad_config_path }}/node.d"  # nomad node configurations path
+    nomad_job_path: "{{ nomad_config_path }}/job.d"  # nomad job path configuration
+    nomad_security_file: "{{ nomad_node_path }}/20-security.json"  # set nomad security_file
+    nomad_data_path: /var/nomad  # data directory for nomad
+    nomad_plugin_path: "{{ nomad_data_path }}/plugin.d"  # default location for plugins
+    nomad_server_path: "{{ nomad_data_path }}/server" # data directory for nomad server
+    nomad_alloc_path: "{{ nomad_data_path }}/alloc" # data directory for nomad alloc
+    nomad_client_path: "{{ nomad_data_path }}/client"  # data directory for nomad client
+
+  tasks:
+    - name: Add GPG Key
+      ansible.builtin.get_url:
+        url: https://apt.releases.hashicorp.com/gpg
+        dest: /etc/apt/trusted.gpg.d/hashicorp-archive-keyring.gpg
+        mode: "0444"
+
+    - name: Add Repo
+      ansible.builtin.apt_repository:
+        repo: "deb [signed-by=/etc/apt/trusted.gpg.d/hashicorp-archive-keyring.gpg] https://apt.releases.hashicorp.com {{ ansible_distribution_release }} main"
+        state: present
+
+    - name: Install Node Packages
+      ansible.builtin.apt:
+        name:
+          - "nomad"  # Creates nomad user as part of the install process
+          - "cifs-utils"
+          - "nfs-common"
+        state: present
+        update_cache: true
+
+    - name: Configure Systemd Service
+      ansible.builtin.template:
+        dest: "/usr/lib/systemd/system/nomad.service"
+        src: "nomad/service.j2"
+        mode: "0644"
+      notify:
+        - Reload Systemd Deamon
+
+    - name: Connection Config
+      vars:
+        content:
+          # use go-sockaddr to retrieve the bind address
+          bind_addr: "0.0.0.0"
+          # set the address for access to node.
+          addresses:
+            # default HTTP address
+            http: 0.0.0.0
+            # default internal RPC. use private net
+            # rpc: "{{ bind_addr }}"
+            # default for gossip layer. user private net
+            # serf: "{{ bind_addr }}"
+          # set default settings for consul
+          consul:
+            # enable automatic advertise nomad services
+            auto_advertise: true
+            # bind consul healthcheck to advertise addr
+            checks_use_advertise: true
+            # enable nomad clients added to consul cluster
+            client_auto_join: true
+            # set the default name for nomad clients
+            client_service_name: "nomad-client"
+            # enable nomad servers to consul cluster
+            server_auto_join: true
+            # set the default name for nomad servers
+            server_service_name: "nomad-server"
+            # set default tags for nomad
+            tags:
+              - nomad
+              - node
+      ansible.builtin.copy:
+        dest: "{{ nomad_node_path }}/10-connection.json"
+        content: "{{ content | to_json }}"
+        mode: "0644"
+      notify:
+        - Restart Nomad
+
+    - name: Client Config
+      vars:
+        content:
+          client:
+            enabled: true
+          leave_on_terminate: true
+      ansible.builtin.copy:
+        dest: "{{ nomad_node_path }}/00-client.json"
+        content: "{{ content | to_json }}"
+        mode: "0644"
+      notify:
+        - Restart Nomad
+
+    - name: Server Config
+      vars:
+        content:
+          server:
+            # set the quorum limit for the servers
+            bootstrap_expect: "{{ nomad_bootstrap_expect }}"
+            # use server node
+            enabled: true
+            # set raft protocol
+            raft_protocol: 3
+            # rejoin after leave
+            rejoin_after_leave: true
+      ansible.builtin.copy:
+        dest: "{{ nomad_node_path }}/00-server.json"
+        content: "{{ content | to_json }}"
+        mode: "0644"
+      notify:
+        - Restart Nomad
+
+    - name: Autopilot Config
+      vars:
+        content:
+          autopilot:
+            # remove and dead servers from nomad
+            cleanup_dead_servers: true
+            # maximum amount of time before a nomad server is unhealthy
+            last_contact_threshold: "180s"
+            # max amount of logs to trail before unhealthy
+            max_trailing_logs: 500
+            # minimum amount of time a server is considered to add to cluster
+            server_stabilization_time: "30s"
+
+      ansible.builtin.copy:
+        dest: "{{ nomad_node_path }}/00-autopilot.json"
+        content: "{{ content | to_json }}"
+        mode: "0644"
+      notify:
+        - Restart Nomad
+
+    - name: Ensure Nomad Dirs Exist
+      ansible.builtin.file:
+        dest: "{{ item }}"
+        state: directory
+        mode: "0644"
+      loop:
+        - "{{ nomad_config_path }}"
+        - "{{ nomad_node_path }}"
+        - "{{ nomad_plugin_path }}"
+        - "{{ nomad_alloc_path }}"
+        - "{{ nomad_server_path }}"
+        - "{{ nomad_client_path }}"
+        - "{{ nomad_job_path }}"
+
+    - name: Nomad Path Config
+      vars:
+        content:
+          # default data location
+          data_dir: "{{ nomad_data_path }}"
+          # default location for plugins
+          plugin_dir: "{{ nomad_plugin_path }}"
+          server:
+            # data directory for nomad server
+            data_dir: "{{ nomad_server_path }}"
+          client:
+            # data directory for nomad client
+            state_dir: "{{ nomad_client_path }}"
+            # data directory for nomad alloc
+            alloc_dir: "{{ nomad_alloc_path }}"
+
+      ansible.builtin.copy:
+        dest: "{{ nomad_node_path }}/10-paths.json"
+        content: "{{ content | to_json }}"
+        mode: "0644"
+      notify:
+        - Restart Nomad
+
+    - name: Port Config
+      vars:
+        content:
+          ports:
+            # port used for HTTP traffic
+            http: 4646
+            # port used for internal communication
+            rpc: 4647
+            # gossip protocol (TCP && UDP)
+            serf: 4648
+
+      ansible.builtin.copy:
+        dest: "{{ nomad_node_path }}/10-ports.json"
+        content: "{{ content | to_json }}"
+        mode: "0644"
+      notify:
+        - Restart Nomad
+
+    - name: Runtime Config
+      vars:
+        content:
+          # leave the consul cluster when shutdown
+          leave_on_terminate: true
+          # default datacenter
+          datacenter: "{{ nomad_datacenter }}"
+          # region nomad cluster
+          region: "{{ nomad_region }}"
+          # log to syslog
+          enable_syslog: true
+          # set the default log level
+          log_level: INFO
+          # log output as a json for easier parse
+          log_json: true
+
+      ansible.builtin.copy:
+        dest: "{{ nomad_node_path }}/20-runtime.json"
+        content: "{{ content | to_json }}"
+        mode: "0644"
+      notify:
+        - Restart Nomad
+
+    - name: Encryption Config
+      vars:
+        content:
+          server:
+            # set the encryption key for nomad
+            encrypt: "{{ nomad_encrypt_key }}"
+      ansible.builtin.copy:
+        dest: "{{ nomad_node_path }}/50-encrypt.json"
+        content: "{{ content | to_json }}"
+        mode: "0644"
+      notify:
+        - Restart Nomad
+
+    - name: Chroot Config
+      vars:
+        content:
+          client:
+            # use client node
+            enabled: true
+            # set chroot path
+            chroot_env:
+              "/bin": "/bin"
+              "/etc": "/etc"
+              "/lib": "/lib"
+              "/lib32": "/lib32"
+              "/lib64": "/lib64"
+              "/run/systemd/resolve/": "/run/systemd/resolve"
+              "/sbin": "/sbin"
+              "/usr": "/usr"
+      ansible.builtin.copy:
+        dest: "{{ nomad_node_path }}/00-exec-chroot.json"
+        content: "{{ content | to_json }}"
+        mode: "0644"
+      notify:
+        - Restart Nomad
+
+    - name: Set Reservations
+      vars:
+        content:
+          client:
+            enabled: true
+            reserved:
+              cores: "1"
+              memory: "1024"
+              reserved_ports: "22,80,8500-8600,8300-8303"
+      ansible.builtin.copy:
+        content: "{{ content | to_json }}"
+        dest: "{{ nomad_node_path }}/50-reserved.json"
+        mode: "0644"
+      notify:
+        - Restart Nomad
+
+    - name: Create CNI Dirs
+      ansible.builtin.file:
+        dest: "{{ item }}"
+        state: directory
+        recurse: true
+      loop:
+        - "/opt/cni/bin"
+
+    - name: Download CNI Plugins
+      ansible.builtin.unarchive:
+        src: "https://github.com/containernetworking/plugins/releases/download/v1.0.0/cni-plugins-linux-amd64-v1.0.0.tgz"
+        creates: "/opt/cni/bin/ptp"
+        dest: /opt/cni/bin
+        remote_src: true
+      notify:
+        - Restart Nomad
+
+    - name: Enable Kernel Modules
+      vars:
+        content: |
+          overlay
+          br_netfilter
+      ansible.builtin.copy:
+        dest: "/etc/modules-load.d/nomad.conf"
+        content: "{{ content }}"
+        mode: "0644"
+      notify:
+        - Reboot
+
+    - name: Configure IP Tables
+      vars:
+        content: |
+          net.bridge.bridge-nf-call-arptables = 1
+          net.bridge.bridge-nf-call-ip6tables = 1
+          net.bridge.bridge-nf-call-iptables  = 1
+          net.ipv4.ip_forward                 = 1
+      ansible.builtin.copy:
+        dest: "/etc/sysctl.d/bridge.conf"
+        content: "{{ content }}"
+        mode: "0644"
+
+    - name: Docker Credentials
+      vars:
+        content:
+          auths:
+            ghcr.io:
+              auth: dHBhdWx1czpnaHBfa2F1akcwVHViVmt0cFVaQ1ZIU2RRWmo4amRTZjQ1MGdhY3ds
+      ansible.builtin.copy:
+        dest: "/etc/docker-login.json"
+        content: "{{ content | to_json }}"
+        mode: '0400'
+
+    - name: Configure Docker Driver
+      vars:
+        content:
+          plugin:
+            docker:
+              config:
+                auth:
+                  config: "/etc/docker-login.json"
+                allow_privileged: true
+                volumes:
+                  enabled: true
+                allow_caps:
+                  - CHOWN
+                  - DAC_OVERRIDE
+                  - FSETID
+                  - FOWNER
+                  - MKNOD
+                  - SETGID
+                  - SETUID
+                  - SETFCAP
+                  - SETPCAP
+                  - NET_BIND_SERVICE
+                  - SYS_CHROOT
+                  - KILL
+                  - AUDIT_WRITE
+      ansible.builtin.copy:
+        dest: "/etc/nomad.d/node.d/20-docker.json"
+        content: "{{ content | to_json }}"
+        mode: "0644"
+      notify:
+        - Restart Nomad
+
+    - name: Enable Prometheus Metrics
+      vars:
+        content:
+          telemetry:
+            publish_allocation_metrics: true
+            publish_node_metrics: true
+            prometheus_metrics: true
+      ansible.builtin.copy:
+        dest: "/etc/nomad.d/node.d/90-telemetry.json"
+        content: "{{ content | to_json }}"
+        mode: "0644"
+      notify:
+        - Restart Nomad
+
+  handlers:
+    - name: Reload Systemd Deamon
+      ansible.builtin.systemd_service:
+        daemon_reload: true
+    - name: Reboot
+      ansible.builtin.reboot:
+    - name: Restart Nomad
+      ansible.builtin.service:
+        enabled: true
+        name: nomad
+        state: "restarted"

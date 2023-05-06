@@ -1,0 +1,130 @@
+- name: Common Tools
+  hosts: compute
+  tasks:
+    - name: Install Tools
+      ansible.builtin.apt:
+        name:
+          - net-tools
+          - git
+          - htop
+          - curl
+          - jq
+          - gpg
+        state: present
+        update_cache: true
+
+- name: Prom Node Exporter
+  hosts: compute
+  roles:
+    - role: prometheus.prometheus.node_exporter
+      vars:
+        node_exporter_binary_local_dir: /Users/tom/Downloads/node_exporter-1.5.0.linux-amd64
+        node_exporter_version: 1.5.0  # https://github.com/prometheus/node_exporter/releases
+
+- name: Configure NTP
+  hosts: compute
+  tasks:
+    - name: NTP Config
+      ansible.builtin.copy:
+        content: |
+          # Managed by Ansible
+
+          [Time]
+          NTP=time.cloudflare.com
+          FallbackNTP=pool.ntp.org
+        dest: "/etc/systemd/timesyncd.conf"
+        mode: "0644"
+      notify:
+        - Restart NTP
+
+  handlers:
+    - name: Restart Chrony
+      listen: Restart NTP
+      when: ansible_facts['distribution'] in ("Pop!_OS", "Ubuntu")
+      ansible.builtin.service:
+        enabled: true
+        name: chrony
+        state: "restarted"
+
+    - name: Restart Timesyncd
+      listen: Restart NTP
+      when: ansible_facts['distribution'] in ("Debian")
+      ansible.builtin.service:
+        enabled: true
+        name: systemd-timesyncd.service
+        state: "restarted"
+
+- name: Configre UPS Monitoring
+  hosts: main_rack
+  tasks:
+    - name: Install Dependencies
+      ansible.builtin.apt:
+        name:
+          - nut
+        state: present
+        update_cache: true
+
+    - name: Set NUT Mode
+      ansible.builtin.template:
+        dest: "/etc/nut/nut.conf"
+        src: "common/nut.conf.j2"
+        mode: "0644"
+      notify:
+        - Restart NUT
+
+    - name: Set NUT Server
+      ansible.builtin.template:
+        dest: "/etc/nut/upsmon.conf"
+        src: "common/upsmon.conf.j2"
+        mode: "0644"
+      notify:
+        - Restart NUT
+
+    - name: Disable NUT Driver
+      ansible.builtin.systemd:
+        name: "nut-driver"
+        enabled: false
+        state: "stopped"
+        masked: true
+
+  handlers:
+    - name: Restart NUT
+      ansible.builtin.service:
+        enabled: true
+        name: nut-client
+        state: "restarted"
+
+- name: Configure Unattended Upgrades
+  hosts: compute
+  tasks:
+    - name: Install Dependencies
+      ansible.builtin.apt:
+        name:
+          - unattended-upgrades
+          - apt-config-auto-update
+          - apt-listchanges
+        state: present
+        update_cache: true
+
+    - name: Configure APT
+      ansible.builtin.template:
+        dest: "/etc/apt/apt.conf.d/20auto-upgrades"
+        src: "common/20auto-upgrades.j2"
+        mode: "0644"
+      notify:
+        - Restart unattended-upgrades
+
+    - name: Configure Upgrades
+      ansible.builtin.template:
+        dest: "/etc/apt/apt.conf.d/50unattended-upgrades"
+        src: "common/50unattended-upgrades.j2"
+        mode: "0644"
+      notify:
+        - Restart unattended-upgrades
+
+  handlers:
+    - name: Restart unattended-upgrades
+      ansible.builtin.service:
+        enabled: true
+        name: unattended-upgrades
+        state: "restarted"

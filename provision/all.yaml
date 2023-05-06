@@ -1,0 +1,5 @@
+---
+- ansible.builtin.import_playbook: common.yaml
+- ansible.builtin.import_playbook: truenas.yaml
+- ansible.builtin.import_playbook: consul.yaml
+- ansible.builtin.import_playbook: nomad.yaml

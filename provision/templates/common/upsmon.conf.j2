@@ -1,0 +1,13 @@
+{{ ansible_managed | comment }}
+MONITOR ups@woodlandpark.brickyard.whitestar.systems 1 slaveuser c2xhdmVwYXNz slave
+
+MINSUPPLIES 1
+SHUTDOWNCMD "/sbin/shutdown -h +0"
+POLLFREQ 5
+POLLFREQALERT 5
+HOSTSYNC 15
+DEADTIME 15
+POWERDOWNFLAG /etc/killpower
+RBWARNTIME 43200
+NOCOMMWARNTIME 600
+FINALDELAY 5

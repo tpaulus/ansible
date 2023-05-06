@@ -1,0 +1,409 @@
+- name: Install Consul
+  hosts:
+    - consul_servers
+    - consul_agents
+  vars: &global_vars
+    consul_connect_enabled: false
+    consul_bind_addr: "{{ ansible_facts['default_ipv4']['address'] }}"
+    consul_addresses_dns: "127.0.0.54"
+    consul_retry_join_list: |
+      [{% for host in groups['consul_servers'] -%}
+      "{{ hostvars[host].ansible_default_ipv4.address | ansible.utils.ipwrap }}:8301"{%if not loop.last %}, {% endif %}
+      {%-  endfor %}]
+
+    consul_datacenter: seaview
+
+    consul_config_path: /etc/consul.d
+    consul_run_path: /var/run/consul
+    consul_node_path: "{{ consul_config_path }}/node.d"
+    consul_service_path: "{{ consul_config_path }}/service.d"
+    consul_data_path: /var/consul
+    consul_acl_path: "{{ consul_config_path }}/acl.d"
+    systemd_resolved_path: /etc/systemd/resolved.conf.d
+
+  tasks:
+    - name: Add GPG Key
+      ansible.builtin.get_url:
+        url: https://apt.releases.hashicorp.com/gpg
+        dest: /etc/apt/trusted.gpg.d/hashicorp-archive-keyring.gpg
+        mode: "0444"
+
+    - name: Add Repo
+      ansible.builtin.apt_repository:
+        repo: "deb [signed-by=/etc/apt/trusted.gpg.d/hashicorp-archive-keyring.gpg] https://apt.releases.hashicorp.com {{ ansible_distribution_release }} main"
+        state: present
+
+    - name: Install Node Packages
+      ansible.builtin.apt:
+        name:
+          - "consul"
+
+    - name: Remove Default Configuration
+      ansible.builtin.file:
+        path: "/etc/consul.d/consul.hcl"
+        state: absent
+
+    - name: Make configured data_dir
+      ansible.builtin.file:
+        dest: "{{ item }}"
+        state: directory
+        recurse: true
+        owner: "consul"
+        group: "root"
+      loop:
+        - "{{ consul_config_path }}"
+        - "{{ consul_run_path }}"
+        - "{{ consul_node_path }}"
+        - "{{ consul_service_path }}"
+        - "{{ consul_data_path }}"
+        - "{{ consul_acl_path }}"
+
+    - name: Consul Connect Config
+      vars:
+        content:
+          # consul connect stanza
+          connect:
+            # use server node
+            enabled: "{{ consul_connect_enabled | bool }}"
+      ansible.builtin.copy:
+        dest: "{{ consul_node_path }}/00-connect.json"
+        content: "{{ content | to_json }}"
+        mode: "0644"
+      notify:
+        - Restart Consul
+
+    - name: Conection Config
+      vars:
+        content:
+          # use go-sockaddr to retrieve the bind address
+          bind_addr: "{{ consul_bind_addr }}"
+          client_addr: "{{ consul_bind_addr }}"
+          # set of addresses used
+          addresses:
+            # DNS IP address. Cannot be UDS
+            dns: "{{ consul_bind_addr }} {{ consul_addresses_dns }}"
+            # set the http address
+            http: "{{ consul_http_addr }} {{ consul_bind_addr }} 127.0.0.1"
+            # set the default https
+            https: "{{ consul_https_addr }} {{ consul_bind_addr }} 127.0.0.1"
+            # set the default grpc address
+            grpc: "{{ consul_grpc_addr }} {{ consul_bind_addr }} 127.0.0.1"
+          # required to set unix sockets correctly
+          unix_sockets:
+            # set default owner for the socket
+            user: "{{ consul_user }}"
+            # set default mode for the socket
+            mode: "{{ consul_mode | int }}"
+      ansible.builtin.copy:
+        dest: "{{ consul_node_path }}/10-connection.json"
+        content: "{{ content | to_json }}"
+        mode: "0644"
+      notify:
+        - Restart Consul
+
+    - name: Port Config
+      vars:
+        content:
+          ports:
+            # DNS server, -1 to disable
+            dns: 53
+            # HTTP API, -1 to disable
+            http: 8500
+            # HTTPS API, -1 to disable
+            https: -1
+            # GRPC port, -1 to disable
+            grpc: 8502
+            # server RPC address
+            server: 8300
+            # Serf LAN port
+            serf_lan: 8301
+            # Serf WAN port
+            serf_wan: 8302
+            # sidecar minimum port range
+            sidecar_min_port: 20000
+            # sidecar maximum port range
+            sidecar_max_port: 30000
+      ansible.builtin.copy:
+        dest: "{{ consul_node_path }}/10-ports.json"
+        content: "{{ content | to_json }}"
+        mode: "0644"
+      notify:
+        - Restart Consul
+
+    - name: Consul DNS Cache Config
+      vars:
+        content:
+          dns_config:
+            # only do DNS lookup to passing. No warning or critical
+            only_passing: true
+            # enable DNS cache
+            use_cache: true
+            # set how long cache should be kept. Set to 24 hr
+            cache_max_age: 86400s
+            # how long to wait before doing a node lookup
+            node_ttl: 10s
+            # how long to wait before doing a service lookup
+            service_ttl:
+              "*": 10s
+            soa:
+              # how long to wait before expiring a service. Set to 12 hr
+              expire: 43200
+              # set limit for TTL of a service. 0 means no limit
+              min_ttl: 60
+              # how long to wait before refresh. Set to 60 m
+              refresh: 3600
+      ansible.builtin.copy:
+        dest: "{{ consul_node_path }}/10-cache.json"
+        content: "{{ content | to_json }}"
+        mode: "0644"
+      notify:
+        - Restart Consul
+
+    - name: Add acl token to environment of node
+      ansible.builtin.lineinfile:
+        create: true
+        path: /etc/environment
+        state: present
+        regexp: "^CONSUL_HTTP_TOKEN"
+        line: "CONSUL_HTTP_TOKEN={{ consul_agent_token }}"
+        mode: "0644"
+
+  handlers: &handlers
+    - name: Restart Consul
+      ansible.builtin.service:
+        enabled: true
+        name: consul
+        state: "restarted"
+
+- name: Configure Consul Server
+  hosts: consul_servers
+  vars: &server_vars
+    <<: *global_vars
+    consul_bootstrap_expect: 3
+
+    consul_address: "unix://{{ consul_run_path }}"
+    consul_http_addr: "{{ consul_address }}/http.sock"
+    consul_https_addr: "{{ consul_address }}/https.sock"
+    consul_grpc_addr: "{{ consul_address }}/grpc.sock"
+    consul_api_address: "http://{{ (hostvars[inventory_hostname].ansible_default_ipv4.address | ansible.utils.ipwrap) }}:8500"
+
+    consul_domain: "consul"
+
+  tasks:
+    - name: Set consul environment variables
+      ansible.builtin.blockinfile:
+        create: true
+        state: present
+        path: /etc/environment
+        block: |
+          CONSUL_HTTP_ADDR={{ consul_http_addr }}
+          CONSUL_HTTPS_ADDR={{ consul_https_addr }}
+          CONSUL_GRPC_ADDR={{ consul_grpc_addr }}
+        mode: "0644"
+
+    - name: Server Config
+      vars:
+        content:
+          # set the quorum limit for the servers
+          bootstrap_expect: "{{ consul_bootstrap_expect }}"
+          # use server node
+          server: true
+          # use web ui
+          ui_config:
+            enabled: true
+          # enable script checks only in localhost
+          enable_local_script_checks: true
+          # disable remote exec commands
+          disable_remote_exec: true
+          # set the log level setting
+          log_level: "info"
+          # what to use for the domain on connection
+          domain: "{{ consul_domain }}"
+          # rejoin after leave
+          rejoin_after_leave: true
+      ansible.builtin.copy:
+        dest: "{{ consul_node_path }}/00-server.json"
+        content: "{{ content | to_json }}"
+        mode: "0644"
+
+    - name: Autopilot Config
+      vars:
+        content:
+          autopilot:
+            # automatic removal of dead servers
+            cleanup_dead_servers: true
+            # set the limit for server to be considered unhealthy
+            last_contact_threshold: 30s
+            # set how long before a server considered healthy
+            server_stabilization_time: 30s
+            # max amount of logs to be behind the leader before considered unhealthy
+            max_trailing_logs: 500
+            # minimum amount of quorum before removing dead servers
+            min_quorum: "{{ consul_bootstrap_expect }}"
+      ansible.builtin.copy:
+        dest: "{{ consul_node_path }}/00-autopilot.json"
+        content: "{{ content | to_json }}"
+        mode: "0644"
+
+    - name: Runtime Config
+      vars:
+        content:
+          # list of consul nodes to join
+          retry_join: "{{ consul_retry_join_list }}"
+          # datacenter to associate node with
+          datacenter: "{{ consul_datacenter }}"
+          # path where consul keeps persistence
+          data_dir: "{{ consul_data_path }}"
+          # leave the consul cluster when shutdown
+          leave_on_terminate: "true"
+          # rejoin the cluster of leaving
+          rejoin_after_leave: true
+          # set node-id from consul_node_name
+          node_id: "{{ inventory_hostname | to_uuid }}"
+          # set the node name
+          node_name: "{{ inventory_hostname }}"
+      ansible.builtin.copy:
+        dest: "{{ consul_node_path }}/90-runtime.json"
+        content: "{{ content | to_json }}"
+        mode: "0644"
+
+    - name: ACL Config
+      vars:
+        consul_acl_default_policy: "deny"
+
+        content:
+          acl:
+            # enable consul ACL
+            enabled: true
+            # cache limit for policy. Higher means less congestion
+            policy_ttl: 300s
+            # cache limit for role. Higher means less congestion
+            role_ttl: 300s
+            # cache limit for token. Higher means less congestion
+            token_ttl: 300s
+            # require list and read policy for listing regardless of other kv policy.
+            enable_key_list_policy: false
+            # allow token to exist post restart on an agent
+            enable_token_persistence: true
+            # set default policy for ACL
+            default_policy: "{{ consul_acl_default_policy }}"
+            # token to use ACL
+            tokens:
+              # set master token (management and operations). Only used on leader
+              initial_management: "{{ consul_acl_initial_management_token }}"
+              # set default token for permissions
+              default: "{{ consul_acl_default_token }}"
+              # set the node agent token
+              agent: "{{ consul_agent_token }}"
+      ansible.builtin.copy:
+        dest: "{{ consul_acl_path }}/80-acl-server.json"
+        content: "{{ content | to_json }}"
+        mode: "0644"
+
+  handlers: *handlers
+
+- name: Configure Consul Agent
+  hosts: consul_agents
+  vars:
+    <<: *server_vars
+
+  tasks:
+    - name: Set consul environment variables
+      ansible.builtin.blockinfile:
+        create: true
+        state: present
+        path: /etc/environment
+        block: |
+          CONSUL_HTTP_ADDR={{ consul_http_addr }}
+          CONSUL_HTTPS_ADDR={{ consul_https_addr }}
+          CONSUL_GRPC_ADDR={{ consul_grpc_addr }}
+        mode: "0644"
+
+    - name: Configure Host Resolver
+      ansible.builtin.template:
+        src: "consul/resolved.conf.j2"
+        dest: "{{ systemd_resolved_path }}/10-consul.conf"
+        owner: "consul"
+        mode: "0644"
+      notify:
+        - Restart Resolver
+
+    - name: Configure Consul DNS Recursors
+      vars:
+        content:
+          recursors:
+            - "1.1.1.1"
+            - "1.0.0.1"
+      ansible.builtin.copy:
+        dest: "/etc/consul.d/node.d/10-dns.json"
+        content: "{{ content | to_json }}"
+        mode: "0644"
+      notify:
+        - Restart Consul
+
+    - name: Runtime Config
+      vars:
+        content:
+          # list of consul nodes to join
+          retry_join: "{{ consul_retry_join_list }}"
+          # datacenter to associate node with
+          datacenter: "{{ consul_datacenter }}"
+          # path where consul keeps persistence
+          data_dir: "{{ consul_data_path }}"
+          # leave the consul cluster when shutdown
+          leave_on_terminate: "false"
+          # rejoin the cluster of leaving
+          rejoin_after_leave: true
+          # set node-id from consul_node_name
+          node_id: "{{ inventory_hostname | to_uuid }}"
+          # set the node name
+          node_name: "{{ inventory_hostname }}"
+      ansible.builtin.copy:
+        dest: "{{ consul_node_path }}/90-runtime.json"
+        content: "{{ content | to_json }}"
+        mode: "0644"
+      notify:
+        - Restart Consul
+
+    - name: ACL Config
+      vars:
+        content:
+          acl:
+            # enable consul ACL
+            enabled: true
+            # default tokens to use
+            tokens:
+              # set default token for permissions
+              default: "{{ consul_acl_default_token }}"
+              # set the node agent token
+              agent: "{{ consul_agent_token }}"
+      ansible.builtin.copy:
+        dest: "{{ consul_acl_path }}/80-acl-client.json"
+        content: "{{ content | to_json }}"
+        mode: "0644"
+      notify:
+        - Restart Consul
+
+    - name: Add acl token to environment of node
+      ansible.builtin.lineinfile:
+        create: true
+        path: /etc/environment
+        state: present
+        regexp: "^CONSUL_HTTP_TOKEN"
+        line: "CONSUL_HTTP_TOKEN={{ consul_agent_token }}"
+        mode: "0644"
+      notify:
+        - Restart Consul
+
+  handlers:
+    - name: Restart Consul
+      ansible.builtin.service:
+        enabled: true
+        name: consul
+        state: "restarted"
+
+    - name: Restart Resolver
+      ansible.builtin.service:
+        enabled: true
+        name: systemd-resolved
+        state: "restarted"

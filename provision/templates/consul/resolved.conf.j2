@@ -1,0 +1,5 @@
+{{ ansible_managed | comment }}
+
+[Resolve]
+DNS = {{ consul_addresses_dns | ansible.utils.ipwrap }}
+Domains = ~{{ consul_domain }}

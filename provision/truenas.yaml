@@ -1,0 +1,19 @@
+- name: Configure Offsite Backups
+  hosts: storage
+
+  vars:
+    restic_password: "{{ offsite_restic_password }}"
+    b2_bucket_name: "{{ offsite_b2_bucket_name }}"
+    shares:
+      - Photos
+      - Docs
+      - Mel
+      - Tom
+      - Archive
+
+  tasks:
+    - name: Place Script
+      ansible.builtin.template:
+        dest: "/usr/local/sbin/backup-to-b2"
+        mode: "0700"
+        src: "truenas/backup-script.sh.j2"

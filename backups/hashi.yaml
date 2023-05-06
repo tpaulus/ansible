@@ -1,0 +1,45 @@
+- name: Configure Consul Backups
+  hosts: consul
+  tasks:
+    - name: Install Dependencies
+      ansible.builtin.apt:
+        name:
+          - rsync
+        state: present
+        update_cache: true
+
+    - name: Place Consul Backup Script
+      ansible.builtin.uri:
+        url: "https://raw.githubusercontent.com/tpaulus/server-scripts/main/backups/consul.sh"
+        dest: "/usr/sbin/backup-consul.sh"
+        mode: "0555"
+
+    - name: Install Crontab
+      ansible.builtin.cron:
+        name: backup-consul
+        minute: 0
+        hour: "*/4"
+        job: "bash /usr/sbin/backup-consul.sh > /var/log/consul-backup.log 2>&1"
+
+- name: Configure Nomad Backups
+  hosts: nomad
+  tasks:
+    - name: Install Dependencies
+      ansible.builtin.apt:
+        name:
+          - rsync
+        state: present
+        update_cache: true
+
+    - name: Place Nomad Backup Script
+      ansible.builtin.uri:
+        url: "https://raw.githubusercontent.com/tpaulus/server-scripts/main/backups/nomad.sh"
+        dest: "/usr/sbin/backup-nomad.sh"
+        mode: "0555"
+
+    - name: Install Crontab
+      ansible.builtin.cron:
+        name: backup-nomad
+        minute: 0
+        hour: "*/4"
+        job: "bash /usr/sbin/backup-nomad.sh > /var/log/nomad-backup.log 2>&1"

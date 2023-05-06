@@ -1,0 +1,61 @@
+#!/usr/bin/env bash
+
+{{ ansible_managed | comment }}
+
+RESTIC="/usr/bin/restic"
+
+export RESTIC_PASSWORD="{{ restic_password }}"
+export B2_ACCOUNT_ID="{{ b2_account_id }}"
+export B2_ACCOUNT_KEY="{{ b2_account_key }}"
+
+BUCKET_NAME="{{ b2_bucket_name }}"
+SHARES_TO_BACKUP="{{ shares | join(' ') }}"  # Seperate by Spaces
+
+# Install (or update) Restic
+if [ ! -f "$RESTIC" ]; then
+curl -s https://api.github.com/repos/restic/restic/releases/latest \
+| grep "_linux_amd64.bz2" \
+| cut -d : -f 2,3 \
+| tr -d \" \
+| tail -n 1 \
+| xargs wget -O /tmp/restic.bz2 
+
+bunzip2 /tmp/restic.bz2
+mv /tmp/restic "$RESTIC"
+chmod +x "$RESTIC"
+else
+$RESTIC self-update
+fi
+
+for share in $SHARES_TO_BACKUP
+do
+echo "Backing up ${share}"
+
+# If not intialized
+if ! $RESTIC -r "b2:${BUCKET_NAME}:${share}" snapshots  2>&1 > /dev/null;
+then
+    echo "Repo for $share not initialized"
+    $RESTIC -r "b2:${BUCKET_NAME}:${share}" init
+fi
+
+$RESTIC backup \
+    --cleanup-cache \
+    -r "b2:${BUCKET_NAME}:${share}" \
+    "/mnt/tank/${share}"
+
+echo "Finished backing up ${share}. Starting cleanup."
+$RESTIC forget \
+    -r "b2:${BUCKET_NAME}:${share}" \
+    --keep-daily 7 \
+    --keep-weekly 5 \
+    --keep-monthly 7 \
+    --prune
+
+echo "Cleanup finished for $share"
+done
+
+echo "Backup Completed"
+
+unset RESTIC_PASSWORD
+unset B2_ACCOUNT_ID
+unset B2_ACCOUNT_KEY
