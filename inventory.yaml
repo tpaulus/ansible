@@ -1,0 +1,64 @@
+router:
+  hosts:
+    sttlwscsq1:
+      ansible_user: root
+      ansible_host: 10.0.1.1
+      ansible_ssh_common_args: -oHostKeyAlgorithms=+ssh-rsa -oPubkeyAcceptedAlgorithms=+ssh-rsa
+
+storage:
+  hosts:
+    woodlandpark:
+      ansible_become: yes
+      ansible_host: 10.0.10.32
+      consul_agent_token: "8897e3cc-a8a2-ccd2-1441-8b68ba0dc727"
+
+compute:
+  hosts:
+    # broadmoor:
+    #   ansible_become: yes
+    #   ansible_host: 10.0.10.16
+
+    magnolia:
+      ansible_become: yes
+      ansible_host: 10.0.10.48
+
+    roosevelt:
+      ansible_become: yes
+      ansible_host: 10.0.10.64
+
+    ravenna:
+      ansible_become: yes
+      ansible_host: 10.0.10.80
+
+debian_nodes:
+  hosts:
+    # broadmoor:
+    roosevelt:
+    ravenna:
+
+main_rack:
+  hosts:
+    magnolia:
+    # broadmoor:
+    roosevelt:
+    ravenna:
+
+nomad:
+  hosts:
+    magnolia:
+    roosevelt:
+    ravenna:
+
+consul_servers:
+  children:
+    nomad:
+
+consul_agents:
+  children:
+    compute:
+    storage:
+
+nodes:
+  children:
+    storage:
+    compute:
