@@ -8,25 +8,25 @@ router:
 storage:
   hosts:
     woodlandpark:
-      ansible_become: yes
+      ansible_become: true
       ansible_host: 10.0.10.32
 
 compute:
   hosts:
     # broadmoor:
-    #   ansible_become: yes
+    #   ansible_become: true
     #   ansible_host: 10.0.10.16
 
     magnolia:
-      ansible_become: yes
+      ansible_become: true
       ansible_host: 10.0.10.48
 
     roosevelt:
-      ansible_become: yes
+      ansible_become: true
       ansible_host: 10.0.10.64
 
     ravenna:
-      ansible_become: yes
+      ansible_become: true
       ansible_host: 10.0.10.80
 
 debian_nodes:

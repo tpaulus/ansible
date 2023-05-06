@@ -1,1 +1,2 @@
+---
 consul_agent_token: "{{ vault_consul_agent_token }}"
