@@ -3,15 +3,15 @@
 
   tasks:
     - name: Install CNI Plugins Script
-      uri:
+      ansible.builtin.uri:
         dest: /mnt/data/on_boot.d/05-install-cni-plugins.sh
         url: https://raw.githubusercontent.com/unifi-utilities/unifios-utilities/main/cni-plugins/05-install-cni-plugins.sh
-        mode: 0755
+        mode: "0755"
 
     - name: Install CNI Config
-      copy:
+      ansible.builtin.copy:
         dest: /mnt/data/podman/cni/20-dns.conflist
-        mode: 0755
+        mode: "0755"
         content: |
           {
             "cniVersion": "0.4.0",
@@ -39,10 +39,11 @@
           }
 
     - name: Place CNI Config
-      copy:
+      ansible.builtin.copy:
         src: /mnt/data/podman/cni/20-dns.conflist
         dest: /etc/cni/net.d/dns.conflist
         remote_src: true
+        mode: "0644"
 
     - name: Create Container
       containers.podman.podman_container:
@@ -61,9 +62,8 @@
           - 1.0.0.1
         restart_policy: on-failure
 
-
     - name: Install Container Autostart Script
-      uri:
+      ansible.builtin.uri:
         dest: /mnt/data/on_boot.d/10-consul-core-dns.sh
         url: https://gist.githubusercontent.com/tpaulus/1c55aabc0d1e5a7edccb7a7f85c84ed8/raw/5726a0eb54ae956f7efb0b004ddec30231d7a3d8/10-consul-core-dns.sh
-        mode: 0755
+        mode: "0755"

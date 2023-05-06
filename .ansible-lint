@@ -1,0 +1,3 @@
+exclude_paths:
+  - group_vars/*/vault.yaml
+  - host_vars/*/vault.yaml
