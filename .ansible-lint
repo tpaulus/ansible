@@ -1,3 +1,5 @@
+---
 exclude_paths:
+  - .github
   - group_vars/*/vault.yaml
   - host_vars/*/vault.yaml

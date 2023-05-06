@@ -1,3 +1,5 @@
 ---
- collections:
- - prometheus.prometheus
+collections:
+  - ansible.utils
+  - prometheus.prometheus
+  - containers.podman
