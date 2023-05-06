@@ -418,7 +418,7 @@
         content:
           auths:
             ghcr.io:
-              auth: "{{ ghcr_username + ':' + ghcr_password | b64encode }}"
+              auth: "{{ (ghcr_username + ':' + ghcr_password) | b64encode }}"
       ansible.builtin.copy:
         dest: "/etc/docker-login.json"
         content: "{{ content | to_json }}"
