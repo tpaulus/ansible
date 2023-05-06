@@ -10,7 +10,6 @@ storage:
     woodlandpark:
       ansible_become: yes
       ansible_host: 10.0.10.32
-      consul_agent_token: "8897e3cc-a8a2-ccd2-1441-8b68ba0dc727"
 
 compute:
   hosts:
