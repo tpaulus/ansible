@@ -1,5 +1,11 @@
 ---
-- ansible.builtin.import_playbook: common.yaml
-- ansible.builtin.import_playbook: truenas.yaml
-- ansible.builtin.import_playbook: consul.yaml
-- ansible.builtin.import_playbook: nomad.yaml
+- name: Common Configuration
+  ansible.builtin.import_playbook: common.yaml
+- name: TrueNAS
+  ansible.builtin.import_playbook: truenas.yaml
+- name: Consul
+  ansible.builtin.import_playbook: consul.yaml
+- name: Nomad
+  ansible.builtin.import_playbook: nomad.yaml
+- name: Consul/Nomad Raft Backups
+  ansible.builtin.import_playbook: ../backups/hashi.yaml

@@ -11,10 +11,12 @@ Wants=consul.service
 After=consul.service
 
 [Service]
-EnvironmentFile=-/etc/nomad.d/nomad.env
 ExecReload=/bin/kill -HUP $MAINPID
-ExecStart=/usr/bin/nomad agent -config /etc/nomad.d
-KillMode=process
+ExecStart=/usr/bin/nomad agent \
+  -config=/etc/nomad.d/node.d/ \
+  -config=/etc/nomad.d/job.d/
+TimeoutStopSec=1020
+KillMode=process    
 KillSignal=SIGINT
 LimitNOFILE=65536
 LimitNPROC=infinity

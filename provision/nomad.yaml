@@ -13,15 +13,37 @@
         state: present
         update_cache: true
 
-    - name: Add GPG Key
-      ansible.builtin.get_url:
-        url: https://download.docker.com/linux/debian/gpg
-        dest: /etc/apt/trusted.gpg.d/docker.gpg
-        mode: "0444"
+    - name: Check if GPG key file exists
+      ansible.builtin.stat:
+        path: /etc/apt/trusted.gpg.d/docker.gpg
+      register: gpg_key_file
+
+    - name: Download HashiCorp GPG key
+      when: not gpg_key_file.stat.exists
+      block:
+        - name: Download GPG key file
+          ansible.builtin.get_url:
+            url: https://download.docker.com/linux/debian/gpg
+            dest: /tmp/docker-gpg-key
+            mode: "0644"
+
+        - name: Save GPG key to file
+          ansible.builtin.shell: |
+            set -o pipefail
+            cat /tmp/docker-gpg-key | gpg --dearmor -o /etc/apt/trusted.gpg.d/docker.gpg
+          args:
+            executable: /bin/bash
+          changed_when: not gpg_key_file.stat.exists
+
+        - name: Clean up temporary GPG key file
+          ansible.builtin.file:
+            path: /tmp/docker-gpg-key
+            state: absent
 
     - name: Add docker repository to apt
       ansible.builtin.apt_repository:
-        repo: deb https://download.docker.com/linux/debian {{ ansible_distribution_release }} stable
+        repo: deb [signed-by=/etc/apt/trusted.gpg.d/docker.gpg] https://download.docker.com/linux/debian {{ ansible_distribution_release }} stable
+        filename: "docker"
         state: present
 
     - name: Install docker
@@ -64,7 +86,7 @@
 
     - name: Create Systemd Service
       ansible.builtin.copy:
-        dest: /etc/systemd/system/weave.service
+        dest: /usr/lib/systemd/system/weave.service
         mode: "0755"
         content: |
           [Unit]
@@ -77,6 +99,8 @@
           ExecStartPre=/usr/local/bin/weave launch --no-restart --no-dns --ipalloc-range $IP_CIDR --metrics-addr={{ metrics_addr }} $PEERS
           ExecStart=/usr/bin/docker attach weave
           ExecStop=/usr/local/bin/weave stop
+          Restart=always
+          RestartSec=2
           [Install]
           WantedBy=multi-user.target
       notify:
@@ -93,12 +117,20 @@
         dest: /etc/sysconfig/weave
         content: |
           PEERS="{% for host in groups['nomad'] -%}
-          {{ hostvars[host].ansible_default_ipv4.address | ansible.utils.ipwrap }}{%if not loop.last %} {% endif %}
+          {{ hostvars[host].ansible_default_ipv4.address }}{%if not loop.last %} {% endif %}
           {%- endfor %}"
           IP_CIDR="{{ weave_cidr }}"
         mode: "0644"
       notify:
         - Restart Weave
+
+    - name: Run Weave Expose on boot
+      ansible.builtin.cron:
+        name: Run weave expose
+        user: root
+        special_time: reboot
+        job: /usr/local/bin/weave expose
+
 
   handlers:
     - name: Reload Systemd Deamon
@@ -124,15 +156,37 @@
     nomad_client_path: "{{ nomad_data_path }}/client"  # data directory for nomad client
 
   tasks:
-    - name: Add GPG Key
-      ansible.builtin.get_url:
-        url: https://apt.releases.hashicorp.com/gpg
-        dest: /etc/apt/trusted.gpg.d/hashicorp-archive-keyring.gpg
-        mode: "0444"
+    - name: Check if GPG key file exists
+      ansible.builtin.stat:
+        path: /etc/apt/trusted.gpg.d/hashicorp-archive-keyring.gpg
+      register: gpg_key_file
+
+    - name: Download HashiCorp GPG key
+      when: not gpg_key_file.stat.exists
+      block:
+        - name: Download GPG key file
+          ansible.builtin.get_url:
+            url: https://apt.releases.hashicorp.com/gpg
+            dest: /tmp/hashicorp-gpg-key
+            mode: "0644"
+
+        - name: Save GPG key to file
+          ansible.builtin.shell: |
+            set -o pipefail
+            cat /tmp/hashicorp-gpg-key | gpg --dearmor -o /etc/apt/trusted.gpg.d/hashicorp-archive-keyring.gpg
+          args:
+            executable: /bin/bash
+          changed_when: not gpg_key_file.stat.exists
+
+        - name: Clean up temporary GPG key file
+          ansible.builtin.file:
+            path: /tmp/hashicorp-gpg-key
+            state: absent
 
     - name: Add Repo
       ansible.builtin.apt_repository:
         repo: "deb [signed-by=/etc/apt/trusted.gpg.d/hashicorp-archive-keyring.gpg] https://apt.releases.hashicorp.com {{ ansible_distribution_release }} main"
+        filename: "hashicorp"
         state: present
 
     - name: Install Node Packages
@@ -151,6 +205,20 @@
         mode: "0644"
       notify:
         - Reload Systemd Deamon
+
+    - name: Ensure Nomad Dirs Exist
+      ansible.builtin.file:
+        dest: "{{ item }}"
+        state: directory
+        mode: "755"
+      loop:
+        - "{{ nomad_config_path }}"
+        - "{{ nomad_node_path }}"
+        - "{{ nomad_plugin_path }}"
+        - "{{ nomad_alloc_path }}"
+        - "{{ nomad_server_path }}"
+        - "{{ nomad_client_path }}"
+        - "{{ nomad_job_path }}"
 
     - name: Connection Config
       vars:
@@ -195,7 +263,10 @@
         content:
           client:
             enabled: true
+            drain_on_shutdown:
+              deadline: "15m"
           leave_on_terminate: true
+
       ansible.builtin.copy:
         dest: "{{ nomad_node_path }}/00-client.json"
         content: "{{ content | to_json }}"
@@ -241,20 +312,6 @@
         mode: "0644"
       notify:
         - Restart Nomad
-
-    - name: Ensure Nomad Dirs Exist
-      ansible.builtin.file:
-        dest: "{{ item }}"
-        state: directory
-        mode: "0644"
-      loop:
-        - "{{ nomad_config_path }}"
-        - "{{ nomad_node_path }}"
-        - "{{ nomad_plugin_path }}"
-        - "{{ nomad_alloc_path }}"
-        - "{{ nomad_server_path }}"
-        - "{{ nomad_client_path }}"
-        - "{{ nomad_job_path }}"
 
     - name: Nomad Path Config
       vars:
@@ -436,6 +493,7 @@
                 volumes:
                   enabled: true
                 allow_caps:
+                  - NET_RAW
                   - CHOWN
                   - DAC_OVERRIDE
                   - FSETID
@@ -470,14 +528,29 @@
       notify:
         - Restart Nomad
 
+    - name: Set Client Meta Vars
+      vars:
+        content:
+          client:
+            meta:
+              "network.primary_interface": "{{ hostvars[inventory_hostname].ansible_default_ipv4.alias }}"
+      ansible.builtin.copy:
+        dest: "/etc/nomad.d/node.d/90-meta.json"
+        content: "{{ content | to_json }}"
+        mode: "0644"
+      notify:
+        - Restart Nomad
+
   handlers:
     - name: Reload Systemd Deamon
       ansible.builtin.systemd_service:
         daemon_reload: true
     - name: Reboot
       ansible.builtin.reboot:
+      throttle: 1
     - name: Restart Nomad
       ansible.builtin.service:
         enabled: true
         name: nomad
         state: "restarted"
+      throttle: 1

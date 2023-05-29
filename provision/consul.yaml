@@ -8,7 +8,7 @@
     consul_addresses_dns: "127.0.0.54"
     consul_retry_join_list: |
       [{% for host in groups['consul_servers'] -%}
-      "{{ hostvars[host].ansible_default_ipv4.address | ansible.utils.ipwrap }}:8301"{%if not loop.last %}, {% endif %}
+      "{{ hostvars[host].ansible_default_ipv4.address }}:8301"{%if not loop.last %}, {% endif %}
       {%-  endfor %}]
 
     consul_datacenter: seaview
@@ -21,16 +21,49 @@
     consul_acl_path: "{{ consul_config_path }}/acl.d"
     systemd_resolved_path: /etc/systemd/resolved.conf.d
 
+    consul_address: "unix://{{ consul_run_path }}"
+    consul_http_addr: "{{ consul_address }}/http.sock"
+    consul_https_addr: "{{ consul_address }}/https.sock"
+    consul_grpc_addr: "{{ consul_address }}/grpc.sock"
+    consul_api_address: "http://{{ (hostvars[inventory_hostname].ansible_default_ipv4.address) }}:8500"
+
+    consul_user: consul
+    consul_group: consul
+    consul_mode: "660"
+
   tasks:
-    - name: Add GPG Key
-      ansible.builtin.get_url:
-        url: https://apt.releases.hashicorp.com/gpg
-        dest: /etc/apt/trusted.gpg.d/hashicorp-archive-keyring.gpg
-        mode: "0444"
+    - name: Check if GPG key file exists
+      ansible.builtin.stat:
+        path: /etc/apt/trusted.gpg.d/hashicorp-archive-keyring.gpg
+      register: gpg_key_file
+
+    - name: Download HashiCorp GPG key
+      when: not gpg_key_file.stat.exists
+      block:
+        - name: Download GPG key file
+          ansible.builtin.get_url:
+            url: https://apt.releases.hashicorp.com/gpg
+            dest: /tmp/hashicorp-gpg-key
+            mode: "0644"
+
+        - name: Save GPG key to file
+          ansible.builtin.shell: |
+            set -o pipefail
+            cat /tmp/hashicorp-gpg-key | gpg --dearmor -o /etc/apt/trusted.gpg.d/hashicorp-archive-keyring.gpg
+          args:
+            executable: /bin/bash
+          changed_when: not gpg_key_file.stat.exists
+
+        - name: Clean up temporary GPG key file
+          ansible.builtin.file:
+            path: /tmp/hashicorp-gpg-key
+            state: absent
+
 
     - name: Add Repo
       ansible.builtin.apt_repository:
         repo: "deb [signed-by=/etc/apt/trusted.gpg.d/hashicorp-archive-keyring.gpg] https://apt.releases.hashicorp.com {{ ansible_distribution_release }} main"
+        filename: "hashicorp"
         state: present
 
     - name: Install Node Packages
@@ -40,16 +73,20 @@
 
     - name: Remove Default Configuration
       ansible.builtin.file:
-        path: "/etc/consul.d/consul.hcl"
+        path: "{{ item }}"
         state: absent
+      loop:
+        - "/etc/consul.d/consul.hcl"
+        - "/etc/consul.d/consul.env"
 
     - name: Make configured data_dir
       ansible.builtin.file:
         dest: "{{ item }}"
         state: directory
-        recurse: true
-        owner: "consul"
-        group: "root"
+        recurse: false
+        owner: "{{ consul_user }}"
+        group: "{{ consul_group }}"
+        mode: "{{ consul_mode }}"
       loop:
         - "{{ consul_config_path }}"
         - "{{ consul_run_path }}"
@@ -168,24 +205,30 @@
         line: "CONSUL_HTTP_TOKEN={{ consul_agent_token }}"
         mode: "0644"
 
+    - name: Configure Systemd Service
+      ansible.builtin.template:
+        dest: "/usr/lib/systemd/system/consul.service"
+        src: "consul/service.j2"
+        mode: "0644"
+      notify:
+        - Reload Systemd Deamon
+
   handlers: &handlers
+    - name: Reload Systemd Deamon
+      ansible.builtin.systemd_service:
+        daemon_reload: true
     - name: Restart Consul
       ansible.builtin.service:
         enabled: true
         name: consul
         state: "restarted"
+      throttle: 1
 
 - name: Configure Consul Server
   hosts: consul_servers
   vars: &server_vars
     <<: *global_vars
     consul_bootstrap_expect: 3
-
-    consul_address: "unix://{{ consul_run_path }}"
-    consul_http_addr: "{{ consul_address }}/http.sock"
-    consul_https_addr: "{{ consul_address }}/https.sock"
-    consul_grpc_addr: "{{ consul_address }}/grpc.sock"
-    consul_api_address: "http://{{ (hostvars[inventory_hostname].ansible_default_ipv4.address | ansible.utils.ipwrap) }}:8500"
 
     consul_domain: "consul"
 
@@ -319,6 +362,12 @@
           CONSUL_GRPC_ADDR={{ consul_grpc_addr }}
         mode: "0644"
 
+    - name: Ensure systemd resolved directory exists
+      ansible.builtin.file:
+        path: "{{ systemd_resolved_path }}"
+        state: directory
+        mode: '0755'
+
     - name: Configure Host Resolver
       ansible.builtin.template:
         src: "consul/resolved.conf.j2"
@@ -351,7 +400,7 @@
           # path where consul keeps persistence
           data_dir: "{{ consul_data_path }}"
           # leave the consul cluster when shutdown
-          leave_on_terminate: "false"
+          leave_on_terminate: false
           # rejoin the cluster of leaving
           rejoin_after_leave: true
           # set node-id from consul_node_name
@@ -401,6 +450,7 @@
         enabled: true
         name: consul
         state: "restarted"
+      throttle: 1
 
     - name: Restart Resolver
       ansible.builtin.service:

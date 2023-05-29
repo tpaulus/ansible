@@ -1,5 +1,5 @@
 - name: Configure Consul Backups
-  hosts: consul
+  hosts: consul_servers
   tasks:
     - name: Install Dependencies
       ansible.builtin.apt:
