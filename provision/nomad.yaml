@@ -116,7 +116,7 @@
       ansible.builtin.copy:
         dest: /etc/sysconfig/weave
         content: |
-          PEERS="{% for host in groups['nomad'] -%}
+          PEERS="{% for host in groups['nomad'] if host != inventory_hostname -%}
           {{ hostvars[host].ansible_default_ipv4.address }}{%if not loop.last %} {% endif %}
           {%- endfor %}"
           IP_CIDR="{{ weave_cidr }}"
