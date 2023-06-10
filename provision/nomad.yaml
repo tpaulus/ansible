@@ -84,7 +84,7 @@
       notify:
         - Restart Weave
 
-    - name: Create Systemd Service
+    - name: Create Systemd Service for Weave
       ansible.builtin.copy:
         dest: /usr/lib/systemd/system/weave.service
         mode: "0755"
@@ -98,10 +98,29 @@
           EnvironmentFile=-/etc/sysconfig/weave
           ExecStartPre=/usr/local/bin/weave launch --no-restart --no-dns --ipalloc-range $IP_CIDR --metrics-addr={{ metrics_addr }} $PEERS
           ExecStart=/usr/bin/docker attach weave
-          ExecStartPost=/usr/local/bin/weave expose
           ExecStop=/usr/local/bin/weave stop
           Restart=always
           RestartSec=2
+          [Install]
+          WantedBy=multi-user.target
+      notify:
+        - Reload Systemd Deamon
+
+    - name: Create Systemd Service for Weave Expose
+      ansible.builtin.copy:
+        dest: /usr/lib/systemd/system/weave-expose.service
+        mode: "0755"
+        content: |
+          [Unit]
+          Description=Weave Network Expose
+          Documentation=http://docs.weave.works/weave/latest_release/
+          Requires=weave.service
+          After=weave.service
+          [Service]
+          Type=oneshot
+          RemainAfterExit=yes
+          ExecStart=/usr/local/bin/weave expose
+          ExecStop=/usr/local/bin/weave hide
           [Install]
           WantedBy=multi-user.target
       notify:
@@ -124,13 +143,6 @@
         mode: "0644"
       notify:
         - Restart Weave
-
-    - name: Run Weave Expose on boot
-      ansible.builtin.cron:
-        name: Run weave expose
-        user: root
-        special_time: reboot
-        job: /usr/local/bin/weave expose
 
   handlers:
     - name: Reload Systemd Deamon
