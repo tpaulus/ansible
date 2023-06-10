@@ -98,6 +98,7 @@
           EnvironmentFile=-/etc/sysconfig/weave
           ExecStartPre=/usr/local/bin/weave launch --no-restart --no-dns --ipalloc-range $IP_CIDR --metrics-addr={{ metrics_addr }} $PEERS
           ExecStart=/usr/bin/docker attach weave
+          ExecStartPost=/usr/local/bin/weave expose
           ExecStop=/usr/local/bin/weave stop
           Restart=always
           RestartSec=2
