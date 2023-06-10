@@ -53,12 +53,20 @@
         sleep: 5
       when: reboot_required.rc == 0
 
-    - name: Ensure Services are Started
-      ansible.builtin.systemd:
-        name: "{{ item }}"
-        state: started
+    - name: Filter Services to Start  # noqa: command-instead-of-module
+      ansible.builtin.shell: systemctl is-active {{ item }} >/dev/null 2>&1
+      register: service_status
+      failed_when: false
+      changed_when: false
       loop:
         - consul
         - docker
         - weave
         - nomad
+      ignore_errors: true
+
+    - name: Start Services
+      ansible.builtin.systemd:
+        name: "{{ item }}"
+        state: started
+      loop: "{{ service_status.results | selectattr('rc', 'eq', 0) | map(attribute='item') | list }}"
