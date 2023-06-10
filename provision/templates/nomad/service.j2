@@ -10,6 +10,12 @@ After=network-online.target
 Wants=consul.service
 After=consul.service
 
+# Ensure Weave is up and running before we start Nomad
+Wants=weave.service
+Wants=weave-expose.service
+After=weave.service
+After=weave-expose.service
+
 [Service]
 ExecReload=/bin/kill -HUP $MAINPID
 ExecStart=/usr/bin/nomad agent \
