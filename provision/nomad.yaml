@@ -132,7 +132,6 @@
         special_time: reboot
         job: /usr/local/bin/weave expose
 
-
   handlers:
     - name: Reload Systemd Deamon
       ansible.builtin.systemd_service:

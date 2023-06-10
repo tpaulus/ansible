@@ -1,0 +1,64 @@
+---
+- name: Update and reboot system
+  hosts: compute
+  become: true
+  serial: 1
+
+  tasks:
+    - name: Update APT cache
+      ansible.builtin.apt:
+        update_cache: true
+
+    - name: Check for packages to update   # noqa: command-instead-of-module
+      ansible.builtin.shell: |
+        set -o pipefail;
+        apt-get -s upgrade docker-ce nomad consul | grep "Inst"
+      args:
+        executable: /bin/bash
+      register: package_updates
+      changed_when: false
+      failed_when: package_updates.rc > 1
+
+    - name: Stop Nomad service if specific packages are being updated
+      ansible.builtin.systemd:
+        name: nomad
+        state: stopped
+      when: package_updates.stdout_lines | length > 0
+
+    - name: Perform system-wide upgrade
+      ansible.builtin.apt:
+        upgrade: full
+        autoremove: true
+        autoclean: true
+
+    - name: Check if reboot is required
+      ansible.builtin.command: test -f /var/run/reboot-required
+      changed_when: false
+      register: reboot_required
+      failed_when: false
+
+    - name: Reboot the system if necessary
+      ansible.builtin.reboot:
+        reboot_timeout: 300
+        msg: "Reboot initiated by Ansible for package updates"
+      when: reboot_required.rc == 0
+      async: 0
+      poll: 0
+      failed_when: false
+
+    - name: Wait for the system to reboot
+      delegate_to: localhost
+      ansible.builtin.wait_for_connection:
+        connect_timeout: 5
+        sleep: 5
+      when: reboot_required.rc == 0
+
+    - name: Ensure Services are Started
+      ansible.builtin.systemd:
+        name: "{{ item }}"
+        state: started
+      loop:
+        - consul
+        - docker
+        - weave
+        - nomad
