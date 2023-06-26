@@ -1,5 +1,5 @@
 - name: Common Tools
-  hosts: compute
+  hosts: device_roles_compute
   tasks:
     - name: Install Tools
       ansible.builtin.apt:
@@ -14,7 +14,7 @@
         update_cache: true
 
 - name: Prom Node Exporter
-  hosts: compute
+  hosts: device_roles_compute
   roles:
     - role: prometheus.prometheus.node_exporter
       vars:
@@ -22,7 +22,7 @@
         node_exporter_version: 1.5.0  # https://github.com/prometheus/node_exporter/releases
 
 - name: Configure NTP
-  hosts: compute
+  hosts: device_roles_compute
   tasks:
     - name: NTP Config
       ansible.builtin.copy:
@@ -55,7 +55,7 @@
         state: "restarted"
 
 - name: Configre UPS Monitoring
-  hosts: main_rack
+  hosts: racks_MDF
   tasks:
     - name: Install Dependencies
       ansible.builtin.apt:
@@ -95,7 +95,7 @@
         state: "restarted"
 
 - name: Configure Unattended Upgrades
-  hosts: compute
+  hosts: device_roles_compute
   tasks:
     - name: Install Dependencies
       ansible.builtin.apt:

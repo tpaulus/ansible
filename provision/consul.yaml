@@ -1,14 +1,14 @@
 - name: Install Consul
   hosts:
-    - consul_servers
-    - consul_agents
+    - tags_consul_server
+    - tags_consul_agent
   vars: &global_vars
     consul_connect_enabled: false
     consul_bind_addr: "{{ ansible_facts['default_ipv4']['address'] }}"
     consul_addresses_dns: "127.0.0.54"
     consul_retry_join_list: |
-      [{% for host in groups['consul_servers'] -%}
-      "{{ hostvars[host].ansible_default_ipv4.address }}:8301"{%if not loop.last %}, {% endif %}
+      [{% for host in groups['tags_consul_server'] if host != inventory_hostname -%}
+      "{{ hostvars[host].ansible_host }}:8301"{%if not loop.last %}, {% endif %}
       {%-  endfor %}]
 
     consul_datacenter: seaview
@@ -25,7 +25,7 @@
     consul_http_addr: "{{ consul_address }}/http.sock"
     consul_https_addr: "{{ consul_address }}/https.sock"
     consul_grpc_addr: "{{ consul_address }}/grpc.sock"
-    consul_api_address: "http://{{ (hostvars[inventory_hostname].ansible_default_ipv4.address) }}:8500"
+    consul_api_address: "http://{{ (hostvars[inventory_hostname].ansible_host) }}:8500"
 
     consul_user: consul
     consul_group: consul
@@ -225,7 +225,7 @@
       throttle: 1
 
 - name: Configure Consul Server
-  hosts: consul_servers
+  hosts: tags_consul_server
   vars: &server_vars
     <<: *global_vars
     consul_bootstrap_expect: 3
@@ -346,7 +346,7 @@
   handlers: *handlers
 
 - name: Configure Consul Agent
-  hosts: consul_agents
+  hosts: tags_consul_agent
   vars:
     <<: *server_vars
 

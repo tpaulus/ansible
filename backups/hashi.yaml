@@ -1,5 +1,5 @@
 - name: Configure Consul Backups
-  hosts: consul_servers
+  hosts: tags_consul_server
   tasks:
     - name: Install Dependencies
       ansible.builtin.apt:
@@ -22,7 +22,7 @@
         job: "bash /usr/sbin/backup-consul.sh > /var/log/consul-backup.log 2>&1"
 
 - name: Configure Nomad Backups
-  hosts: nomad
+  hosts: tags_nomad
   tasks:
     - name: Install Dependencies
       ansible.builtin.apt:

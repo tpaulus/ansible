@@ -1,5 +1,5 @@
 - name: Unlock All Restic Backends
-  hosts: storage
+  hosts: device_roles_storage
 
   vars:
     shares:

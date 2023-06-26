@@ -1,0 +1,25 @@
+plugin: netbox.netbox.nb_inventory
+api_endpoint: "http://netbox.service.seaview.consul:8080"
+validate_certs: false
+config_context: true
+dns_name: true
+services: false
+flatten_config_context: true
+flatten_local_context_data: true
+
+group_by: 
+- racks
+- device_roles
+- tags
+
+query_filters:
+  - role: compute
+  - role: storage
+  - role: firewall
+# - role: core-switch
+# - role: edge-switch
+
+device_query_filters:
+  - has_primary_ip: 'true'
+  - status__n: offline     # Adding '__n' to a field searches for the negation of the value.
+  - manufacturer_id__n: 2  # Don't touch Unifi Devices

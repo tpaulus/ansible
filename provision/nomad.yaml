@@ -1,5 +1,5 @@
 - name: Install Docker
-  hosts: debian_nodes
+  hosts: tags_nomad
   tasks:
     - name: Install dependencies
       ansible.builtin.apt:
@@ -66,7 +66,7 @@
         state: present
 
 - name: Install Weave
-  hosts: nomad
+  hosts: tags_nomad
 
   vars:
     weave_cidr: "172.30.0.0/16"
@@ -105,6 +105,7 @@
           WantedBy=multi-user.target
       notify:
         - Reload Systemd Deamon
+        - Restart Weave
 
     - name: Create Systemd Service for Weave Expose
       ansible.builtin.copy:
@@ -125,6 +126,7 @@
           WantedBy=multi-user.target
       notify:
         - Reload Systemd Deamon
+        - Restart Weave Expose
 
     - name: Ensure sysconfig Directory Exists
       ansible.builtin.file:
@@ -136,8 +138,8 @@
       ansible.builtin.copy:
         dest: /etc/sysconfig/weave
         content: |
-          PEERS="{% for host in groups['nomad'] if host != inventory_hostname -%}
-          {{ hostvars[host].ansible_default_ipv4.address }}{%if not loop.last %} {% endif %}
+          PEERS="{% for host in groups['tags_nomad'] if host != inventory_hostname -%}
+          {{ hostvars[host].ansible_host }}{%if not loop.last %} {% endif %}
           {%- endfor %}"
           IP_CIDR="{{ weave_cidr }}"
         mode: "0644"
@@ -152,9 +154,15 @@
       ansible.builtin.systemd:
         state: restarted
         name: weave
+        enabled: true
+    - name: Restart Weave Expose
+      ansible.builtin.systemd:
+        state: restarted
+        name: weave
+        enabled: true
 
 - name: Install Nomad
-  hosts: nomad
+  hosts: tags_nomad
 
   vars:
     nomad_config_path: /etc/nomad.d  # nomad configurations' path

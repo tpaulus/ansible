@@ -1,4 +1,6 @@
 ---
+ansible_become: true
+
 nomad_encrypt_key: "{{ vault_nomad_encrypt_key }}"
 
 nomad_bootstrap_expect: 3
