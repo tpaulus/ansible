@@ -1,69 +1,77 @@
-- name: Consul Core DNS
-  hosts: router
+---
+- name: Install CoreDNS on FreeBSD
+  hosts: device_roles_firewall
+  become: true
+  gather_facts: true
+
+  vars:
+    coredns_version: "v1.10.1"
+
+    coredns_local_path: /tmp/coredns
 
   tasks:
-    - name: Install CNI Plugins Script
-      ansible.builtin.uri:
-        dest: /mnt/data/on_boot.d/05-install-cni-plugins.sh
-        url: https://raw.githubusercontent.com/unifi-utilities/unifios-utilities/main/cni-plugins/05-install-cni-plugins.sh
+    - name: Clone CoreDNS repository
+      ansible.builtin.git:
+        repo: https://github.com/coredns/coredns.git
+        dest: '{{ coredns_local_path }}'
+        version: "{{ coredns_version }}"
+      delegate_to: localhost
+      become: false
+
+    - name: Cross-compile CoreDNS binary  # noqa: command-instead-of-shell
+      ansible.builtin.shell: go build -o /tmp/coredns/coredns -v
+      args:
+        chdir: '{{ coredns_local_path }}'
+      environment:
+        GOOS: freebsd
+        GOARCH: amd64
+      delegate_to: localhost
+      changed_when: true
+      become: false
+
+    - name: Copy CoreDNS binary
+      ansible.builtin.copy:
+        src: '{{ coredns_local_path }}/coredns'
+        dest: /usr/local/sbin/coredns
         mode: "0755"
 
-    - name: Install CNI Config
-      ansible.builtin.copy:
-        dest: /mnt/data/podman/cni/20-dns.conflist
-        mode: "0755"
-        content: |
-          {
-            "cniVersion": "0.4.0",
-            "name": "dns",
-            "plugins": [
-              {
-                "type": "macvlan",
-                "mode": "bridge",
-                "master": "br10",
-                "mac": "00:1c:b4:10:ba:57",
-                "ipam": {
-                  "type": "static",
-                  "addresses": [
-                    {
-                      "address": "10.0.10.3/24",
-                      "gateway": "10.0.10.1"
-                    }
-                  ],
-                  "routes": [
-                    {"dst": "0.0.0.0/0"}
-                  ]
-                }
-              }
-            ]
-          }
+    - name: Cleanup Build Directory
+      ansible.builtin.file:
+        path: "{{ coredns_local_path }}"
+        state: absent
+      delegate_to: localhost
+      become: false
 
-    - name: Place CNI Config
-      ansible.builtin.copy:
-        src: /mnt/data/podman/cni/20-dns.conflist
-        dest: /etc/cni/net.d/dns.conflist
-        remote_src: true
+    - name: Create CoreDNS service directory
+      ansible.builtin.file:
+        path: /usr/local/etc/rc.d
+        state: directory
         mode: "0644"
 
-    - name: Create Container
-      containers.podman.podman_container:
-        state: started
-        name: consul-core-dns
-        image: ghcr.io/tpaulus/consul-core-dns@sha256:05f05f84d647e78f57a5503218ff6fce3c3a6800b4f4f34153a99de26ef8d6fe
-        network: dns
-        hostname: router-dns-container
-        env:
-          CONSUL_ENCRYPTION_KEY: RHBUbD1ESDB6KH59TXVaXA==
-          CONSUL_DATACENTER: seaview
-          CONSUL_SRV: _server._tcp.consul.brickyard.whitestar.systems
-          AGENT_ACL_TOKEN: f58d9f93-55a6-1ef4-efad-c9831d4e90b9
-        dns:
-          - 1.1.1.1
-          - 1.0.0.1
-        restart_policy: on-failure
-
-    - name: Install Container Autostart Script
-      ansible.builtin.uri:
-        dest: /mnt/data/on_boot.d/10-consul-core-dns.sh
-        url: https://gist.githubusercontent.com/tpaulus/1c55aabc0d1e5a7edccb7a7f85c84ed8/raw/5726a0eb54ae956f7efb0b004ddec30231d7a3d8/10-consul-core-dns.sh
+    - name: Create CoreDNS rc.d script
+      ansible.builtin.template:
+        src: router/coredns_rc.j2
+        dest: /usr/local/etc/rc.d/coredns
         mode: "0755"
+
+    - name: Create CoreDNS configuration directory
+      ansible.builtin.file:
+        path: /etc/coredns
+        state: directory
+        mode: "0755"
+
+    - name: Copy Corefile
+      ansible.builtin.template:
+        src: router/Corefile.j2
+        dest: /etc/coredns/Corefile
+        mode: "0644"
+
+    - name: Enable CoreDNS service
+      ansible.builtin.command: sysrc coredns_enable=YES
+      changed_when: true
+
+    - name: Start CoreDNS service
+      ansible.builtin.service:
+        name: coredns
+        state: restarted
+        enabled: true

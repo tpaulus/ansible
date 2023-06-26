@@ -1,0 +1,46 @@
+#!/bin/sh
+#
+# PROVIDE: coredns
+# REQUIRE: FILESYSTEMS network
+# KEYWORD: shutdown
+
+{{ ansible_managed | comment }}
+
+. /etc/rc.subr
+
+name="coredns"
+rcvar=${name}_enable
+
+command="/usr/local/sbin/coredns"
+command_args="-conf /etc/coredns/Corefile"
+
+pidfile="/var/run/${name}.pid"
+required_files="/etc/coredns/Corefile"
+
+start_precmd="${name}_prestart"
+start_cmd="${name}_start"
+stop_cmd="${name}_stop"
+
+coredns_prestart() {
+echo "Starting CoreDNS..."
+}
+
+coredns_start() {
+if [ ! -e ${pidfile} ]; then
+    touch ${pidfile}
+    chown root:wheel ${pidfile}
+fi
+echo "Starting CoreDNS..."
+/usr/sbin/daemon -cf -p ${pidfile} ${command} ${command_args}
+}
+
+coredns_stop() {
+echo "Stopping CoreDNS..."
+if [ -e ${pidfile} ]; then
+    kill -INT `cat ${pidfile}`
+    rm ${pidfile}
+fi
+}
+
+load_rc_config $name
+run_rc_command "$1"

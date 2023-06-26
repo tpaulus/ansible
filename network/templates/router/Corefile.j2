@@ -1,0 +1,31 @@
+(common) {
+  prometheus localhost:9253
+  errors
+}
+
+consul {
+  import common
+
+  forward . 10.0.10.80 10.0.10.64 10.0.10.48 {
+    health_check 5s domain consul.service.seaview.consul
+  }
+
+  cache 10
+}
+
+. {
+  import common
+
+  template IN ANY unifi {
+    match "^unifi\.$"
+    answer "unifi. 60 IN CNAME unifi.service.seaview.consul"
+  }
+
+  chaos CoreDNS-{{ now(fmt='%Y-%m-%d') }} tom@tompaulus.com
+
+  forward . tls://172.64.36.1 tls://172.64.36.2 {
+     tls_servername {{ cloudflare_gateway_location }}.cloudflare-gateway.com
+     health_check 5s
+  }
+  cache 10
+}
