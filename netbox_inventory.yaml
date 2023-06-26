@@ -7,10 +7,10 @@ services: false
 flatten_config_context: true
 flatten_local_context_data: true
 
-group_by: 
-- racks
-- device_roles
-- tags
+group_by:
+  - racks
+  - device_roles
+  - tags
 
 query_filters:
   - role: compute
