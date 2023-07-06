@@ -1,5 +1,5 @@
 - name: Configure Offsite Backups
-  hosts: storage
+  hosts: device_roles_storage
 
   vars:
     restic_password: "{{ offsite_restic_password }}"
