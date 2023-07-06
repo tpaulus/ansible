@@ -4,7 +4,7 @@
 
 set -euo pipefail
 
-payload=$(echo -n "$1" | base64)
+payload=$(echo -n "$@" | base64)
 
 dispatch_result=`curl \
   --request POST \
@@ -16,7 +16,7 @@ dispatch_result=`curl \
 
 if command -v jq >/dev/null 2>&1; then
   job_id=`echo $dispatch_result | jq -r .DispatchedJobID`
-  echo "$(date +"%Y-%m-%dT%H:%M:%S%z") Dispatched $job_id to apply $1 to $(hostname)" | tee /var/log/highstate.log
+  echo "$(date +"%Y-%m-%dT%H:%M:%S%z") Dispatched $job_id to apply '$@' to $(hostname)" | tee /var/log/highstate.log
 else
   echo "$dispatch_result"
 fi
