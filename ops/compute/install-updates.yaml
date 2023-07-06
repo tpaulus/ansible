@@ -1,6 +1,6 @@
 ---
 - name: Update and reboot system
-  hosts: compute
+  hosts: device_roles_compute
   become: true
   serial: 1
 
