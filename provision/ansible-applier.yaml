@@ -1,0 +1,214 @@
+---
+- name: Create system user and configure SSH
+  hosts: all
+  become: true
+
+  vars:
+    username: ansible-applier
+    ssh_public_key: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIDAEsXS0qAmsoCotBQW66yhaeYge2z/mq+LlM9Axztux ansible-applier@whitestar.systems"
+
+  tasks:
+    - name: Create system user
+      ansible.builtin.user:
+        name: "{{ username }}"
+        comment: "Ansible-applier User"
+        shell: /bin/bash
+        createhome: true
+        home: "/home/{{ username }}"
+        password: C('*')
+
+    - name: Add to Sudo Group
+      vars:
+        group_name: sudo
+      block: &group_add
+        - name: Check if group exists - {{ group_name }}
+          ansible.builtin.command: getent group {{ group_name }}
+          register: group_check
+          ignore_errors: true
+          changed_when: false
+
+        - name: Add user to group - {{ group_name }}
+          ansible.builtin.user:
+            name: "{{ username }}"
+            groups: "{{ group_name }}"
+            append: true
+          when: group_check.rc == 0
+
+    - name: Add to Wheel Group
+      vars:
+        group_name: wheel
+      block: *group_add
+
+    - name: Create SSH directory
+      ansible.builtin.file:
+        path: "/home/{{ username }}/.ssh"
+        state: directory
+        mode: '0700'
+        owner: "{{ username }}"
+        group: "{{ username }}"
+
+    - name: Add SSH authorized key
+      ansible.posix.authorized_key:
+        user: "{{ username }}"
+        state: present
+        key: "{{ ssh_public_key }}"
+        path: "/home/{{ username }}/.ssh/authorized_keys"
+        exclusive: true
+        manage_dir: true
+        validate_certs: false
+
+- name: Add Cron Job to Auto Apply Auto Applier Config
+  hosts: all
+  become: true
+
+  vars:
+    jobs:
+      - cron:
+          minute: "{{ 60 | random(seed=inventory_hostname) }}"
+          hour: "{{ range(4 | random(start=0, seed=inventory_hostname), 24, 4) | join(',') }}"
+          day: "*"
+          month: "*"
+          weekday: "*"
+        playbooks:
+          - provision/ansible-applier.yaml
+
+  tasks:
+    - name: Create FreeBSD package repository file
+      ansible.builtin.copy:
+        content: |
+          FreeBSD: {
+              url: "pkg+http://pkg.FreeBSD.org/${ABI}/latest"
+          }
+        dest: /usr/local/etc/pkg/repos/FreeBSD.conf
+        owner: root
+        group: wheel
+        mode: '0644'
+      when: ansible_facts['distribution'] == 'FreeBSD'
+
+    - name: Install base64 & bash on FreeBSD
+      community.general.pkgng:
+        name:
+          - base64
+          - bash
+        state: present
+      when: ansible_facts['distribution'] == 'FreeBSD'
+
+    - name: Create Highstate Script
+      ansible.builtin.template:
+        src: common/highstate.sh.j2
+        dest: /usr/sbin/highstate
+        mode: "0755"
+
+    - name: Create Cron Jobs
+      loop: "{{ jobs }}"
+      ansible.builtin.cron:
+        name: "Auto Highstate {{ item.playbooks | join(', ') }}"
+        job: "/usr/sbin/highstate '{{ item.playbooks | join(' ') }}'"
+        minute: "{{ item.cron.minute }}"
+        hour: "{{ item.cron.hour }}"
+        day: "{{ item.cron.day }}"
+        month: "{{ item.cron.month }}"
+        weekday: "{{ item.cron.weekday }}"
+
+    - name: Check if /etc/logrotate.d directory exists
+      ansible.builtin.stat:
+        path: /etc/logrotate.d
+      register: logrotate_dir
+
+    - name: Create logrotate entry for highstate.log
+      vars:
+        logfile: /var/log/highstate.log
+      ansible.builtin.template:
+        src: common/etc_logrotate.d_highstate.j2
+        dest: /etc/logrotate.d/highstate
+        owner: root
+        group: root
+        mode: "0644"
+      when: logrotate_dir.stat.exists
+
+- name: Add Cron Job to Auto Apply Provisioning Jobs
+  hosts:
+    - tags_consul_server
+    - tags_consul_agent
+    - tags_nomad
+    - device_roles_compute
+    - device_roles_storage
+  become: true
+
+  vars:
+    jobs:
+      - cron:
+          minute: "{{ 60 | random(seed=inventory_hostname) }}"
+          hour: "{{ range(4 | random(start=0, seed=inventory_hostname), 24, 4) | join(',') }}"
+          day: "*"
+          month: "*"
+          weekday: "*"
+        playbooks:
+          - provision/all.yaml
+
+  tasks:
+    - name: Create Cron Jobs
+      loop: "{{ jobs }}"
+      ansible.builtin.cron:
+        name: "Auto Highstate {{ item.playbooks | join(', ') }}"
+        job: "/usr/sbin/highstate '{{ item.playbooks | join(' ') }}'"
+        minute: "{{ item.cron.minute }}"
+        hour: "{{ item.cron.hour }}"
+        day: "{{ item.cron.day }}"
+        month: "{{ item.cron.month }}"
+        weekday: "{{ item.cron.weekday }}"
+
+- name: Add Cron Job to Auto Apply Compute Ops Jobs
+  hosts: device_roles_compute
+  become: true
+
+  vars:
+    jobs:
+      - cron:
+          minute: "{{ 60 | random(seed=inventory_hostname) }}"
+          hour: "{{ 8 | random(start=5, seed=inventory_hostname) }}"
+          day: "*"
+          month: "*"
+          weekday: "{{ 7 | random(start=1, seed=inventory_hostname) }}"
+        playbooks:
+          - ops/compute/cleanup-docker.yaml
+          - ops/compute/install-updates.yaml
+
+  tasks:
+    - name: Create Cron Jobs
+      loop: "{{ jobs }}"
+      ansible.builtin.cron:
+        name: "Auto Highstate {{ item.playbooks | join(', ') }}"
+        job: "/usr/sbin/highstate '{{ item.playbooks | join(' ') }}'"
+        minute: "{{ item.cron.minute }}"
+        hour: "{{ item.cron.hour }}"
+        day: "{{ item.cron.day }}"
+        month: "{{ item.cron.month }}"
+        weekday: "{{ item.cron.weekday }}"
+
+- name: Add Cron Job to Auto Apply Network Configs
+  hosts: device_roles_firewall
+  become: true
+
+  vars:
+    jobs:
+      - cron:
+          minute: "{{ 60 | random(seed=inventory_hostname) }}"
+          hour: "{{ range(4 | random(start=0, seed=inventory_hostname), 24, 4) | join(',') }}"
+          day: "*"
+          month: "*"
+          weekday: "*"
+        playbooks:
+          - network/router.yaml
+
+  tasks:
+    - name: Create Cron Jobs
+      loop: "{{ jobs }}"
+      ansible.builtin.cron:
+        name: "Auto Highstate {{ item.playbooks | join(', ') }}"
+        job: "/usr/sbin/highstate '{{ item.playbooks | join(' ') }}'"
+        minute: "{{ item.cron.minute }}"
+        hour: "{{ item.cron.hour }}"
+        day: "{{ item.cron.day }}"
+        month: "{{ item.cron.month }}"
+        weekday: "{{ item.cron.weekday }}"

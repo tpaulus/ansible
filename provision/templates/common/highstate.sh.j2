@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+
+{{ ansible_managed | comment }}
+
+set -euo pipefail
+
+payload=$(echo -n "$1" | base64)
+
+dispatch_result=`curl \
+  --request POST \
+  --data "{\"Payload\": \"$payload\", \"Meta\": {\"TARGET_HOSTNAME\": \"$(hostname)\"}}" \
+  --fail --silent \
+  --connect-timeout 5 \
+  {%if inventory_hostname in groups['device_roles_firewall'] %}--interface 10.0.10.1{% endif %} \
+  http://{% if inventory_hostname in groups['device_roles_firewall'] %}10.0.10.64:4646{% else %}nomad-server.service.seaview.consul:4646{% endif %}/v1/job/ops-ansible-applier/dispatch`
+
+if command -v jq >/dev/null 2>&1; then
+  job_id=`echo $dispatch_result | jq -r .DispatchedJobID`
+  echo "$(date +"%Y-%m-%dT%H:%M:%S%z") Dispatched $job_id to apply $1 to $(hostname)" | tee /var/log/highstate.log
+else
+  echo "$dispatch_result"
+fi
