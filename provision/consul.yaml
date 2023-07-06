@@ -298,7 +298,7 @@
           # path where consul keeps persistence
           data_dir: "{{ consul_data_path }}"
           # leave the consul cluster when shutdown
-          leave_on_terminate: "true"
+          leave_on_terminate: true
           # rejoin the cluster of leaving
           rejoin_after_leave: true
           # set node-id from consul_node_name
