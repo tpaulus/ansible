@@ -1,6 +1,6 @@
 ---
 collections:
-  - ansible.utils
   - ansible.posix
+  - ansible.utils
+  - netbox.netbox
   - prometheus.prometheus
-  - containers.podman
