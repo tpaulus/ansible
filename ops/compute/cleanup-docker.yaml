@@ -1,0 +1,20 @@
+---
+- name: Remove exited Docker containers and unused Docker images
+  hosts: device_roles_compute
+
+  tasks:
+    - name: Check if Docker is installed
+      ansible.builtin.command: docker --version
+      register: docker_check
+      ignore_errors: true
+      changed_when: false
+
+    - name: Prune exited Docker containers  # noqa: command-instead-of-shell
+      ansible.builtin.shell: docker rm $(docker ps -a -q --filter "status=exited") || true
+      when: docker_check.rc == 0
+      changed_when: true
+
+    - name: Prune unused Docker images  # noqa: command-instead-of-shell
+      ansible.builtin.shell: docker image prune -a -f
+      when: docker_check.rc == 0
+      changed_when: true
