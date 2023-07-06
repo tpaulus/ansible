@@ -27,5 +27,7 @@ consul {
      tls_servername {{ cloudflare_gateway_location }}.cloudflare-gateway.com
      health_check 5s
   }
-  cache 10
+  cache 300 {
+    prefetch 250
+  }
 }
