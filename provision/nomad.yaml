@@ -178,10 +178,12 @@
     nomad_alloc_path: "{{ nomad_data_path }}/alloc" # data directory for nomad alloc
     nomad_client_path: "{{ nomad_data_path }}/client"  # data directory for nomad client
 
+    apt_key_path: "/etc/apt/trusted.gpg.d/hashicorp-archive-keyring.gpg"
+
   tasks:
     - name: Check if GPG key file exists
       ansible.builtin.stat:
-        path: /etc/apt/trusted.gpg.d/hashicorp-archive-keyring.gpg
+        path: "{{ apt_key_path }}"
       register: gpg_key_file
 
     - name: Download HashiCorp GPG key
@@ -196,7 +198,7 @@
         - name: Save GPG key to file
           ansible.builtin.shell: |
             set -o pipefail
-            cat /tmp/hashicorp-gpg-key | gpg --dearmor -o /etc/apt/trusted.gpg.d/hashicorp-archive-keyring.gpg
+            cat /tmp/hashicorp-gpg-key | gpg --dearmor -o {{ apt_key_path }}
           args:
             executable: /bin/bash
           changed_when: not gpg_key_file.stat.exists
@@ -208,7 +210,7 @@
 
     - name: Add Repo
       ansible.builtin.apt_repository:
-        repo: "deb [arch=amd64 signed-by=/etc/apt/trusted.gpg.d/hashicorp-archive-keyring.gpg] https://apt.releases.hashicorp.com {{ ansible_distribution_release }} main"
+        repo: "deb [arch=amd64 signed-by={{ apt_key_path }}] https://apt.releases.hashicorp.com {{ ansible_distribution_release }} main"
         filename: "hashicorp"
         state: present
 
