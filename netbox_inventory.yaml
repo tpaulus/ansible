@@ -1,4 +1,4 @@
-plugin: netbox.netbox.nb_inventory
+plugin: "netbox.netbox.nb_inventory"
 api_endpoint: "http://netbox.service.seaview.consul:8080"
 validate_certs: false
 config_context: true
