@@ -304,7 +304,7 @@
           # set node-id from consul_node_name
           node_id: "{{ inventory_hostname | to_uuid }}"
           # set the node name
-          node_name: "{{ inventory_hostname }}"
+          node_name: "{{ inventory_hostname | lower }}"
       ansible.builtin.copy:
         dest: "{{ consul_node_path }}/90-runtime.json"
         content: "{{ content | to_json }}"
