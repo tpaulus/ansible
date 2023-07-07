@@ -45,7 +45,7 @@
 
     - name: Add docker repository to apt
       ansible.builtin.apt_repository:
-        repo: deb [signed-by=/etc/apt/trusted.gpg.d/docker.gpg] https://download.docker.com/linux/{{ distro }} {{ release }} stable
+        repo: deb [arch=amd64 signed-by=/etc/apt/trusted.gpg.d/docker.gpg] https://download.docker.com/linux/{{ distro }} {{ release }} stable
         filename: "docker"
         state: present
 
@@ -208,7 +208,7 @@
 
     - name: Add Repo
       ansible.builtin.apt_repository:
-        repo: "deb [signed-by=/etc/apt/trusted.gpg.d/hashicorp-archive-keyring.gpg] https://apt.releases.hashicorp.com {{ ansible_distribution_release }} main"
+        repo: "deb [arch=amd64 signed-by=/etc/apt/trusted.gpg.d/hashicorp-archive-keyring.gpg] https://apt.releases.hashicorp.com {{ ansible_distribution_release }} main"
         filename: "hashicorp"
         state: present
 
