@@ -302,7 +302,7 @@
           # rejoin the cluster of leaving
           rejoin_after_leave: true
           # set node-id from consul_node_name
-          node_id: "{{ inventory_hostname | to_uuid }}"
+          node_id: "{{ inventory_hostname | lower | to_uuid }}"
           # set the node name
           node_name: "{{ inventory_hostname | lower }}"
       ansible.builtin.copy:
@@ -384,7 +384,7 @@
             - "1.1.1.1"
             - "1.0.0.1"
       ansible.builtin.copy:
-        dest: "/etc/consul.d/node.d/10-dns.json"
+        dest: "{{ consul_node_path }}/10-dns.json"
         content: "{{ content | to_json }}"
         mode: "0644"
       notify:
@@ -404,9 +404,9 @@
           # rejoin the cluster of leaving
           rejoin_after_leave: true
           # set node-id from consul_node_name
-          node_id: "{{ inventory_hostname | to_uuid }}"
+          node_id: "{{ inventory_hostname | lower | to_uuid }}"
           # set the node name
-          node_name: "{{ inventory_hostname }}"
+          node_name: "{{ inventory_hostname | lower }}"
       ansible.builtin.copy:
         dest: "{{ consul_node_path }}/90-runtime.json"
         content: "{{ content | to_json }}"
