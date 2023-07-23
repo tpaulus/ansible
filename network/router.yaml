@@ -75,3 +75,90 @@
         name: coredns
         state: restarted
         enabled: true
+
+- name: Install grimd on FreeBSD
+  hosts: device_roles_firewall
+  become: true
+  gather_facts: true
+
+  vars:
+    grimd_version: "HEAD"
+
+    grimd_local_path: /tmp/grimd
+
+  tasks:
+    - name: Clone grimd repository
+      ansible.builtin.git:
+        repo: https://github.com/looterz/grimd.git
+        dest: '{{ grimd_local_path }}'
+        version: "{{ grimd_version }}"
+        recursive: true
+      delegate_to: localhost
+      become: false
+
+    - name: Set Dashboard API Server
+      ansible.builtin.copy:
+        content: |
+          var apiURL = 'http://10.0.1.1:8080/'
+        dest: '{{ grimd_local_path }}/dashboard/reaper/js/config.js'
+        mode: "0644"
+      delegate_to: localhost
+      become: false
+
+    - name: Cross-compile grimd binary  # noqa: command-instead-of-shell
+      ansible.builtin.shell: go build -o /tmp/grimd/grimd -v
+      args:
+        chdir: '{{ grimd_local_path }}'
+      environment:
+        GOOS: freebsd
+        GOARCH: amd64
+      delegate_to: localhost
+      changed_when: true
+      become: false
+
+    - name: Copy grimd binary
+      ansible.builtin.copy:
+        src: '{{ grimd_local_path }}/grimd'
+        dest: /usr/local/sbin/grimd
+        mode: "0755"
+
+    - name: Cleanup Build Directory
+      ansible.builtin.file:
+        path: "{{ grimd_local_path }}"
+        state: absent
+      delegate_to: localhost
+      become: false
+
+    - name: Create grimd service directory
+      ansible.builtin.file:
+        path: /usr/local/etc/rc.d
+        state: directory
+        mode: "0644"
+
+    - name: Create grimd rc.d script
+      ansible.builtin.template:
+        src: router/grimd_rc.j2
+        dest: /usr/local/etc/rc.d/grimd
+        mode: "0755"
+
+    - name: Create grimd configuration directory
+      ansible.builtin.file:
+        path: /etc/grimd
+        state: directory
+        mode: "0755"
+
+    - name: Copy grimd.toml
+      ansible.builtin.template:
+        src: router/grimd.toml.j2
+        dest: /etc/grimd/grimd.toml
+        mode: "0644"
+
+    - name: Enable grimd service
+      ansible.builtin.command: sysrc grimd_enable=YES
+      changed_when: true
+
+    - name: Start grimd service
+      ansible.builtin.service:
+        name: grimd
+        state: restarted
+        enabled: true
