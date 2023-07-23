@@ -1,5 +1,6 @@
 - name: Configure Offsite Backups
   hosts: device_roles_storage
+  become: true
 
   vars:
     restic_password: "{{ offsite_restic_password }}"
