@@ -9,8 +9,8 @@
         update_cache: true
 
     - name: Place Consul Backup Script
-      ansible.builtin.uri:
-        url: "https://raw.githubusercontent.com/tpaulus/server-scripts/main/backups/consul.sh"
+      ansible.builtin.template:
+        src: "consul.sh.j2"
         dest: "/usr/sbin/backup-consul.sh"
         mode: "0555"
 
@@ -32,8 +32,8 @@
         update_cache: true
 
     - name: Place Nomad Backup Script
-      ansible.builtin.uri:
-        url: "https://raw.githubusercontent.com/tpaulus/server-scripts/main/backups/nomad.sh"
+      ansible.builtin.template:
+        src: "nomad.sh.j2"
         dest: "/usr/sbin/backup-nomad.sh"
         mode: "0555"
 
