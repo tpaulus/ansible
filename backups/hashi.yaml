@@ -4,7 +4,7 @@
     - name: Install Dependencies
       ansible.builtin.apt:
         name:
-          - rsync
+          - nfs-common
         state: present
         update_cache: true
 
@@ -27,7 +27,7 @@
     - name: Install Dependencies
       ansible.builtin.apt:
         name:
-          - rsync
+          - nfs-common
         state: present
         update_cache: true
 
