@@ -85,7 +85,7 @@
       ansible.builtin.file:
         dest: "{{ item }}"
         state: directory
-        recurse: false
+        recurse: true
         owner: "{{ consul_user }}"
         group: "{{ consul_group }}"
         mode: "{{ consul_mode }}"

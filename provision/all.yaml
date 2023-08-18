@@ -1,4 +1,6 @@
 ---
+- name: Auto Highstate
+  ansible.builtin.import_playbook: ansible-applier.yaml
 - name: Common Configuration
   ansible.builtin.import_playbook: common.yaml
 - name: TrueNAS
