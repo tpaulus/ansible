@@ -11,7 +11,7 @@ if [[ `hostname` == $cluster_leader ]]; then
     backup_file=$(mktemp)
 
     echo "Executing Consul Snapshot"
-    /usr/bin/consul snapshot save $backup_file
+    /usr/bin/consul snapshot save -token=$(jq -r .acl.tokens.agent /etc/consul.d/acl.d/80-acl-client.json) $backup_file
 
     echo "Uploading Snapshot to NAS"
     mount_dir=$(mktemp -d)
