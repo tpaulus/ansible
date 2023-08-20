@@ -43,3 +43,16 @@
         minute: 0
         hour: "*/4"
         job: "bash /usr/sbin/backup-nomad.sh > /var/log/nomad-backup.log 2>&1"
+
+- name: Allow Access to Share
+  hosts: device_roles_storage
+  environment:
+    middleware_method: client
+  vars:
+    allowed_host_ips: "{{ groups['tags_nomad'] | union(groups['tags_consul_server']) | map('extract', hostvars, 'ansible_host') | list | sort }}"
+  tasks:
+    - name: Update Raft Share  # noqa: args[module]
+      arensb.truenas.sharing_nfs:
+        name: "Server Backups - Rafts"
+        path: "/mnt/tank/Server Backups/Raft Backups"
+        hosts: "{{ allowed_host_ips }}"

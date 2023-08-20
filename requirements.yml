@@ -2,5 +2,6 @@
 collections:
   - ansible.posix
   - ansible.utils
+  - arensb.truenas
   - netbox.netbox
   - prometheus.prometheus
