@@ -61,6 +61,8 @@
         mode: "0755"
 
     - name: Copy Corefile
+      vars:
+        consul_server_ips: "{{ groups['tags_consul_server'] | map('extract', hostvars, 'ansible_host') | list | sort | join(' ') }}"
       ansible.builtin.template:
         src: router/Corefile.j2
         dest: /etc/coredns/Corefile

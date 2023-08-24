@@ -36,7 +36,7 @@ consul {
 # Consul DNS Upstreams
 .:5303 {
   bind lo0
-  forward . 10.0.10.80 10.0.10.64 10.0.10.48 {
+  forward . {{ consul_server_ips }} {
     health_check 5s domain consul.service.seaview.consul
   }
 }
