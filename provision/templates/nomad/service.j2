@@ -19,8 +19,8 @@ After=weave-expose.service
 [Service]
 ExecReload=/bin/kill -HUP $MAINPID
 ExecStart=/usr/bin/nomad agent \
-  -config=/etc/nomad.d/node.d/ \
-  -config=/etc/nomad.d/job.d/
+  -config={{ nomad_node_path }} \
+  -config={{ nomad_job_path }}
 TimeoutStopSec=1020
 KillMode=process    
 KillSignal=SIGINT
