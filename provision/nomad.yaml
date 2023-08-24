@@ -110,6 +110,27 @@
         - Reload Systemd Deamon
         - Restart Weave
 
+    - name: Create Systemd Service for Weave Expose
+      ansible.builtin.copy:
+        dest: /usr/lib/systemd/system/weave-expose.service
+        mode: "0755"
+        content: |
+          [Unit]
+          Description=Weave Network Expose
+          Documentation=http://docs.weave.works/weave/latest_release/
+          Requires=weave.service
+          After=weave.service
+          [Service]
+          Type=oneshot
+          RemainAfterExit=yes
+          ExecStart=/usr/local/bin/weave expose
+          ExecStop=/usr/local/bin/weave hide
+          [Install]
+          WantedBy=multi-user.target
+      notify:
+        - Reload Systemd Deamon
+        - Restart Weave Expose
+
     - name: Ensure sysconfig Directory Exists
       ansible.builtin.file:
         path: /etc/sysconfig
