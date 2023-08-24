@@ -95,6 +95,7 @@
         - "{{ consul_node_path }}"
         - "{{ consul_service_path }}"
         - "{{ consul_data_path }}"
+        - "{{ consul_data_path }}/raft"
         - "{{ consul_acl_path }}"
 
     - name: Consul Connect Config
