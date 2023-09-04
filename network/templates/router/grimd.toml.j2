@@ -1,5 +1,5 @@
 # version this config was generated from
-version = "1.0.9"
+version = "1.0.10"
 
 # list of sources to pull blocklists from, stores them in ./sources
 sources = [
@@ -91,3 +91,7 @@ reactivationdelay = 300
 
 #Dns over HTTPS provider to use.
 DoH = "https://{{ cloudflare_gateway_location }}.cloudflare-gateway.com/dns-query"
+
+# Address for Prometheus to host metrics
+# Set to the empty string to disable
+PrometheusAddr = "10.0.1.1:10005"

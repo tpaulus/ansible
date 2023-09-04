@@ -91,7 +91,7 @@
   tasks:
     - name: Clone grimd repository
       ansible.builtin.git:
-        repo: https://github.com/looterz/grimd.git
+        repo: https://github.com/tpaulus/grimd.git   # TODO Revert back to Upstream once [PR #116](https://github.com/looterz/grimd/pull/116) is merged
         dest: '{{ grimd_local_path }}'
         version: "{{ grimd_version }}"
         recursive: true
