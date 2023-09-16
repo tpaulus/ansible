@@ -14,7 +14,9 @@
         update_cache: true
 
 - name: Prom Node Exporter
-  hosts: device_roles_compute
+  hosts:
+    - device_roles_compute
+    - device_roles_storage
   roles:
     - role: prometheus.prometheus.node_exporter
       vars:
@@ -55,8 +57,10 @@
 
 - name: Configre UPS Monitoring
   hosts: racks_MDF
+  become: true
   tasks:
     - name: Install Dependencies
+      when: ansible_facts['hostname'] != "woodlandpark"
       ansible.builtin.apt:
         name:
           - nut
@@ -64,6 +68,7 @@
         update_cache: true
 
     - name: Set NUT Mode
+      when: ansible_facts['hostname'] != "woodlandpark"
       ansible.builtin.template:
         dest: "/etc/nut/nut.conf"
         src: "common/nut.conf.j2"
@@ -72,6 +77,7 @@
         - Restart NUT
 
     - name: Set NUT Server
+      when: ansible_facts['hostname'] != "woodlandpark"
       ansible.builtin.template:
         dest: "/etc/nut/upsmon.conf"
         src: "common/upsmon.conf.j2"
@@ -80,6 +86,7 @@
         - Restart NUT
 
     - name: Disable NUT Driver
+      when: ansible_facts['hostname'] != "woodlandpark"
       ansible.builtin.systemd:
         name: "nut-driver"
         enabled: false
@@ -96,6 +103,7 @@
 
 - name: Configure Unattended Upgrades
   hosts: device_roles_compute
+  become: true
   tasks:
     - name: Install Dependencies
       ansible.builtin.apt:

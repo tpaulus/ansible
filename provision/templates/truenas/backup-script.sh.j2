@@ -29,31 +29,35 @@ fi
 
 for share in $SHARES_TO_BACKUP
 do
-echo "Backing up ${share}"
+    echo "Backing up ${share}"
 
-# If not intialized
-if ! $RESTIC -r "b2:${BUCKET_NAME}:${share}" snapshots  2>&1 > /dev/null;
-then
-    echo "Repo for $share not initialized"
-    $RESTIC -r "b2:${BUCKET_NAME}:${share}" init
-fi
+    # If not intialized
+    if ! $RESTIC -r "b2:${BUCKET_NAME}:${share}" snapshots  2>&1 > /dev/null;
+    then
+        echo "Repo for $share not initialized"
+        $RESTIC -r "b2:${BUCKET_NAME}:${share}" init
+    fi
 
-$RESTIC backup \
-    --cleanup-cache \
-    -r "b2:${BUCKET_NAME}:${share}" \
-    "/mnt/tank/${share}"
+    $RESTIC backup \
+        --cleanup-cache \
+        -r "b2:${BUCKET_NAME}:${share}" \
+        "/mnt/tank/${share}"
 
-echo "Finished backing up ${share}. Starting cleanup."
-$RESTIC forget \
-    -r "b2:${BUCKET_NAME}:${share}" \
-    --keep-daily 7 \
-    --keep-weekly 5 \
-    --keep-monthly 7 \
-    --prune
+    echo "b2_backup_completed{share=\"${share}\", bucket_name=\"${BUCKET_NAME}\"}" $(date +%s) >> /var/lib/node_exporter/b2_backup.prom.$$
 
-echo "Cleanup finished for $share"
+    echo "Finished backing up ${share}. Starting cleanup."
+    $RESTIC forget \
+        -r "b2:${BUCKET_NAME}:${share}" \
+        --keep-daily 7 \
+        --keep-weekly 5 \
+        --keep-monthly 7 \
+        --prune
+    echo "b2_cleanup_completed{share=\"${share}\", bucket_name=\"${BUCKET_NAME}\"}" $(date +%s) >> /var/lib/node_exporter/b2_backup.prom.$$
+
+    echo "Cleanup finished for $share"
 done
 
+mv /var/lib/node_exporter/b2_backup.prom.$$ /var/lib/node_exporter/b2_backup.prom
 echo "Backup Completed"
 
 unset RESTIC_PASSWORD
