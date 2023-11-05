@@ -1,3 +1,19 @@
+- name: Set Host TZ
+  hosts: all
+  become: true
+
+  tasks:
+    - name: Set the system time zone to UTC
+      community.general.timezone:
+        name: UTC
+      notify: Restart crond
+
+  handlers:
+    - name: Restart crond
+      ansible.builtin.service:
+        name: crond
+        state: restarted
+
 - name: Common Tools
   hosts: device_roles_compute
   tasks:
