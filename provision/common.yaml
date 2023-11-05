@@ -38,7 +38,7 @@
       ansible.builtin.shell: chmod +x /bin/apt*
       changed_when: false
     - name: Enable dpkg
-      ansible.builtin.shell: chmod +x /bin/dpkg
+      ansible.builtin.command: chmod +x /bin/dpkg
       changed_when: false
 
 - name: Prom Node Exporter
