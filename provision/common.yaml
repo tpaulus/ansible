@@ -1,16 +1,11 @@
 - name: Set Host TZ
   hosts: all
   become: true
-
+  
   tasks:
-    - name: Get the current time zone
-      community.general.timezone_info:
-      register: current_timezone_info
-
     - name: Set the system time zone to UTC
       community.general.timezone:
         name: UTC
-      when: current_timezone_info.timezone != "UTC"
       notify: restart crond
 
   handlers:
