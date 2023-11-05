@@ -29,6 +29,18 @@
         state: present
         update_cache: true
 
+- name: Enable APT on TrueNAS
+  hosts: WoodlandPark
+  become: true
+
+  tasks:
+    - name: Enable APT
+      ansible.builtin.shell: chmod +x /bin/apt*
+      changed_when: false
+    - name: Enable dpkg
+      ansible.builtin.shell: chmod +x /bin/dpkg
+      changed_when: false
+
 - name: Prom Node Exporter
   hosts:
     - device_roles_compute
