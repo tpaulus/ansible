@@ -4,4 +4,9 @@ collections:
   - ansible.utils
   - arensb.truenas
   - netbox.netbox
-  - prometheus.prometheus
+  - name: prometheus.prometheus
+    version: 0.8.1
+
+  
+roles:
+  - name: xanmanning.k3s

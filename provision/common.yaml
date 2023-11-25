@@ -47,8 +47,6 @@
     - device_roles_storage
   roles:
     - role: prometheus.prometheus.node_exporter
-      vars:
-        node_exporter_version: 1.6.1  # https://github.com/prometheus/node_exporter/releases
 
 - name: Configure NTP
   hosts: device_roles_compute
