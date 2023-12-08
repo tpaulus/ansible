@@ -1,0 +1,63 @@
+- name: Install dependencies
+  ansible.builtin.apt:
+    name:
+      - apt-transport-https
+      - ca-certificates
+      - curl
+      - gnupg-agent
+      - software-properties-common
+      - lsb-release
+    state: present
+    update_cache: true
+
+- name: Check if GPG key file exists
+  ansible.builtin.stat:
+    path: /etc/apt/trusted.gpg.d/docker.gpg
+  register: gpg_key_file
+
+- name: Download HashiCorp GPG key
+  when: not gpg_key_file.stat.exists
+  block:
+    - name: Download GPG key file
+      ansible.builtin.get_url:
+        url: https://download.docker.com/linux/{{ distro }}/gpg
+        dest: /tmp/docker-gpg-key
+        mode: "0644"
+
+    - name: Save GPG key to file
+      ansible.builtin.shell: |
+        set -o pipefail
+        cat /tmp/docker-gpg-key | gpg --dearmor -o /etc/apt/trusted.gpg.d/docker.gpg
+      args:
+        executable: /bin/bash
+      changed_when: not gpg_key_file.stat.exists
+
+    - name: Clean up temporary GPG key file
+      ansible.builtin.file:
+        path: /tmp/docker-gpg-key
+        state: absent
+
+- name: Add docker repository to apt
+  ansible.builtin.apt_repository:
+    repo: deb [arch=amd64 signed-by=/etc/apt/trusted.gpg.d/docker.gpg] https://download.docker.com/linux/{{ distro }} {{ release }} stable
+    filename: "docker"
+    state: present
+
+- name: Install docker
+  ansible.builtin.apt:
+    name:
+      - docker-ce-cli
+      - docker-ce
+      - containerd.io
+    state: present
+    update_cache: true
+
+- name: Check docker is active
+  ansible.builtin.service:
+    name: docker
+    state: started
+    enabled: true
+- name: Ensure group "docker" exists
+  ansible.builtin.group:
+    name: docker
+    state: present
