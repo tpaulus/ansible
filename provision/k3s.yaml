@@ -1,0 +1,24 @@
+---
+- name: Build a cluster with HA control plane
+  hosts: tags_k3s
+  vars:
+    k3s_become: true
+    k3s_etcd_datastore: true
+
+    k3s_server:
+      write-kubeconfig-mode: '0644'
+      disable:
+        - servicelb
+        - traefik
+
+  roles:
+    - role: xanmanning.k3s
+
+  tasks:
+    - name: Install Longhorn Dependencies
+      ansible.builtin.apt:
+        name:
+          - open-iscsi
+          - nfs-common
+        state: present
+        update_cache: true
