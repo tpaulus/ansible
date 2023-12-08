@@ -20,7 +20,7 @@
   block:
     - name: Download GPG key file
       ansible.builtin.get_url:
-        url: https://download.docker.com/linux/{{ distro }}/gpg
+        url: https://download.docker.com/linux/{{ docker_distro }}/gpg
         dest: /tmp/docker-gpg-key
         mode: "0644"
 
@@ -39,7 +39,7 @@
 
 - name: Add docker repository to apt
   ansible.builtin.apt_repository:
-    repo: deb [arch=amd64 signed-by=/etc/apt/trusted.gpg.d/docker.gpg] https://download.docker.com/linux/{{ distro }} {{ release }} stable
+    repo: deb [arch=amd64 signed-by=/etc/apt/trusted.gpg.d/docker.gpg] https://download.docker.com/linux/{{ docker_distro }} {{ docker_release }} stable
     filename: "docker"
     state: present
 
@@ -49,6 +49,7 @@
       - docker-ce-cli
       - docker-ce
       - containerd.io
+      - docker-compose-plugin
     state: present
     update_cache: true
 
