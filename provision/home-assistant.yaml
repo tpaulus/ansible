@@ -1,6 +1,7 @@
 ---
 - name: Deploy Home Assistant
   hosts: tags_home_assistant
+  become: true
 
   vars:
     docker_config:
@@ -10,13 +11,6 @@
     - docker
 
   tasks:
-    - name: Create Cloudflare API Token Secret
-      community.docker.docker_secret:
-        name: cf_api_token
-        data: "{{ cf_token | b64encode }}"
-        data_is_b64: true
-        state: present
-
     - name: Create Data Dirs
       ansible.builtin.file:
         path: "{{ item }}"
@@ -27,17 +21,42 @@
         - "/etc/docker-data/traefik"
         - "/etc/docker-data/home-assistant"
 
-    - name: Create and start Home Assistant
-      community.docker.docker_compose:
-        project_src: compose/home-assistant
-      register: output
+    - name: Install Home Assistant External Dependencies
+      ansible.builtin.apt:
+        name:
+          - bluez
+        state: present
 
-    - name: Show results
-      ansible.builtin.debug:
-        var: output
+    - name: Create and start Home Assistant
+      vars:
+        dir: /var/docker-compose-files/home-assistant
+      block:
+        - name: Create Dir
+          ansible.builtin.file:
+            path: "{{ dir }}"
+            state: directory
+            recurse: true
+            mode: "0700"
+        - name: Place Compose File
+          ansible.builtin.template:
+            src: compose/home-assistant/docker-compose.yaml
+            dest: "{{ dir }}/docker-compose.yaml"
+            mode: "0600"
+
+        - name: Compose Up
+          ansible.builtin.command:
+            cmd: "docker compose up -d"
+            chdir: "{{ dir }}"
+          register: output
+          changed_when: '"Started" in output.stderr'
+
+        - name: Show results
+          ansible.builtin.debug:
+            var: output
 
 - name: Configure Home Assistant Backups
   hosts: tags_home_assistant
+  become: true
 
   vars:
     backup_script: /usr/sbin/backup-home-assistant.sh
@@ -48,6 +67,7 @@
       ansible.builtin.apt:
         name:
           - nfs-common
+          - rsync
         state: present
         update_cache: true
 
@@ -69,7 +89,7 @@
 
     - name: Create logrotate entry for home-assistant-backup.log
       ansible.builtin.template:
-        src: etc_logrotate.d_ha_backups.j2
+        src: home-assistant/etc_logrotate.d_ha_backups.j2
         dest: /etc/logrotate.d/ha_backups
         owner: root
         group: root
@@ -82,3 +102,16 @@
         minute: 0
         hour: "*"
         job: "bash {{ backup_script }} > {{ log_file }} 2>&1"
+
+- name: Allow Access to Share
+  hosts: device_roles_storage
+  environment:
+    middleware_method: client
+  vars:
+    allowed_host_ips: "{{ groups['tags_home_assistant'] | map('extract', hostvars, 'ansible_host') | list | sort }}"
+  tasks:
+    - name: Update Home Assistant Backup Share  # noqa: args[module]
+      arensb.truenas.sharing_nfs:
+        name: "Server Backups - Home Assistant"
+        path: "/mnt/tank/Server\ Backups/HomeAssistant"
+        hosts: "{{ allowed_host_ips }}"

@@ -1,6 +1,6 @@
 ---
 - name: Create system user and configure SSH
-  hosts: all
+  # hosts: all
   become: true
 
   vars:

@@ -9,28 +9,29 @@ services:
       - "--entrypoints.web.address=:80"
       - "--entrypoints.websecure.address=:443"
       - "--entrypoints.websecure.http.tls=true"
+      - "--entrypoints.websecure.http.tls.certResolver=cf_wss"
       - "--entrypoints.traefik.address=:9000/tcp"
-      - "--entrypoints.metrics.address=:9100/tcp"
       - "--entrypoints.web.http.redirections.entryPoint.to=websecure"
       - "--entrypoints.web.http.redirections.entrypoint.priority=10"
-      - "--certificatesresolvers.myresolver.acme.dnschallenge=true"
-      - "--certificatesresolvers.myresolver.acme.dnschallenge.provider=cloudflare"
-      - "--certificatesresolvers.myresolver.acme.email=admin@whiterstar.systems"
-      - "--certificatesresolvers.myresolver.acme.storage=/letsencrypt/acme.json"
+      - "--certificatesresolvers.cf_wss.acme.dnschallenge=true"
+      - "--certificatesresolvers.cf_wss.acme.dnschallenge.provider=cloudflare"
+      - "--certificatesresolvers.cf_wss.acme.email=admin@whiterstar.systems"
+      - "--certificatesresolvers.cf_wss.acme.storage=/letsencrypt/acme.json"
       - "--api.dashboard=true"
+      - "--api.insecure=true"
       - "--ping=true"
       - "--metrics.prometheus=true"
-      - "--metrics.prometheus.entrypoint=metrics"
-    ports:
-      - "80:80"
-      - "443:443"
-      - "8080:8080"
-    secrets:
-      - cf_api_token
+      - "--metrics.prometheus.entrypoint=traefik"
+    
+    network_mode: host
+    environment:
+      - CF_DNS_API_TOKEN={{ cf_token }}
 
     volumes:
       - "/etc/docker-data/letsencrypt:/letsencrypt"
       - "/var/run/docker.sock:/var/run/docker.sock:ro"
+
+    restart: unless-stopped
 
   homeassistant:
     container_name: homeassistant
@@ -49,12 +50,10 @@ services:
     network_mode: host
 
   watchtower:
+    container_name: watchtower
     image: containrrr/watchtower
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
     environment:
       - WATCHTOWER_CLEANUP=true
-
-secrets:
-  cf_api_token:
-    environment: "CF_DNS_API_TOKEN"
+    restart: unless-stopped

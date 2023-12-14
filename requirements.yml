@@ -6,7 +6,6 @@ collections:
   - netbox.netbox
   - name: prometheus.prometheus
     version: 0.8.1
-  - community.docker
 
 roles:
   - name: xanmanning.k3s

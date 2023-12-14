@@ -17,6 +17,11 @@ consul {
     answer "unifi. 60 IN CNAME unifi-controller.brickyard.whitestar.systems"
   }
 
+  hosts {
+    10.0.10.16 home.whitestar.systems
+    fallthrough
+  }
+
   chaos CoreDNS-{{ coredns_version[1:] }}-{{ now(fmt='%Y-%m-%d') }} tom@tompaulus.com
 
   forward . 127.0.0.1:5301 127.0.0.1:5302 {

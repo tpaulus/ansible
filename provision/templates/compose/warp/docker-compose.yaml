@@ -6,8 +6,7 @@ services:
     command:
       - "tunnel"
       - "run"
+      - "--token"
+      - "{{ tunnel_token }}"
     network_mode: host
-
-secrets:
-  cf_tunnel_token:
-    environment: "TUNNEL_TOKEN"
+    restart: unless-stopped

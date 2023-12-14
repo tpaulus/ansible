@@ -1,4 +1,5 @@
 - name: Install dependencies
+  become: true
   ansible.builtin.apt:
     name:
       - apt-transport-https
@@ -11,12 +12,14 @@
     update_cache: true
 
 - name: Check if GPG key file exists
+  become: true
   ansible.builtin.stat:
     path: /etc/apt/trusted.gpg.d/docker.gpg
   register: docker_gpg_key_file
 
 - name: Download HashiCorp GPG key
-  when: not gpg_key_file.stat.exists
+  when: not docker_gpg_key_file.stat.exists
+  become: true
   block:
     - name: Download GPG key file
       ansible.builtin.get_url:
@@ -38,18 +41,28 @@
         state: absent
 
 - name: Add docker repository to apt
+  become: true
   ansible.builtin.apt_repository:
     repo: deb [arch=amd64 signed-by=/etc/apt/trusted.gpg.d/docker.gpg] https://download.docker.com/linux/{{ docker_distro }} {{ docker_release }} stable
     filename: "docker"
     state: present
 
+- name: Docker Config Dir
+  become: true
+  ansible.builtin.file:
+    state: directory
+    dest: /etc/docker
+    mode: "0755"
+
 - name: Docker Config
+  become: true
   ansible.builtin.copy:
     content: "{{ docker_config | to_json }}"
     dest: /etc/docker/daemon.json
     mode: "0644"
 
 - name: Install docker
+  become: true
   ansible.builtin.apt:
     name:
       - docker-ce-cli
@@ -60,11 +73,13 @@
     update_cache: true
 
 - name: Check docker is active
+  become: true
   ansible.builtin.service:
     name: docker
     state: started
     enabled: true
 - name: Ensure group "docker" exists
+  become: true
   ansible.builtin.group:
     name: docker
     state: present

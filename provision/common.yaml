@@ -11,11 +11,13 @@
   handlers:
     - name: Restart crond
       ansible.builtin.service:
-        name: crond
+        name: cron
         state: restarted
 
 - name: Common Tools
   hosts: device_roles_compute
+  become: true
+
   tasks:
     - name: Install Tools
       ansible.builtin.apt:
@@ -50,6 +52,8 @@
 
 - name: Configure NTP
   hosts: device_roles_compute
+  become: true
+
   tasks:
     - name: NTP Config
       ansible.builtin.copy:

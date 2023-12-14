@@ -1,6 +1,7 @@
 ---
 - name: Deploy Warp Tunnel
   hosts: tags_warp
+  become: true
 
   vars:
     docker_config:
@@ -10,17 +11,32 @@
     - docker
 
   tasks:
-    - name: Create Cloudflare Tunnel Token Secret
-      community.docker.docker_secret:
-        name: cf_tunnel_token
-        data: "{{ cf_tunnel_token | b64encode }}"
-        data_is_b64: true
-        state: present
-
     - name: Create and start Warp Tunnel
-      community.docker.docker_compose:
-        project_src: compose/warp
-      register: output
+      vars:
+        dir: /var/docker-compose-files/warp
+      block:
+        - name: Create Dir
+          ansible.builtin.file:
+            path: "{{ dir }}"
+            state: directory
+            recurse: true
+            mode: "0700"
+        - name: Place Compose File
+          ansible.builtin.template:
+            src: compose/warp/docker-compose.yaml
+            dest: "{{ dir }}/docker-compose.yaml"
+            mode: "0600"
+
+        - name: Compose Up
+          ansible.builtin.command:
+            cmd: "docker compose up -d"
+            chdir: "{{ dir }}"
+          register: output
+          changed_when: '"Started" in output.stderr'
+
+        - name: Show results
+          ansible.builtin.debug:
+            var: output
 
     - name: Show results
       ansible.builtin.debug:
