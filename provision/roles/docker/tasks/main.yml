@@ -13,7 +13,7 @@
 - name: Check if GPG key file exists
   ansible.builtin.stat:
     path: /etc/apt/trusted.gpg.d/docker.gpg
-  register: gpg_key_file
+  register: docker_gpg_key_file
 
 - name: Download HashiCorp GPG key
   when: not gpg_key_file.stat.exists
@@ -30,7 +30,7 @@
         cat /tmp/docker-gpg-key | gpg --dearmor -o /etc/apt/trusted.gpg.d/docker.gpg
       args:
         executable: /bin/bash
-      changed_when: not gpg_key_file.stat.exists
+      changed_when: not docker_gpg_key_file.stat.exists
 
     - name: Clean up temporary GPG key file
       ansible.builtin.file:
@@ -42,6 +42,12 @@
     repo: deb [arch=amd64 signed-by=/etc/apt/trusted.gpg.d/docker.gpg] https://download.docker.com/linux/{{ docker_distro }} {{ docker_release }} stable
     filename: "docker"
     state: present
+
+- name: Docker Config
+  ansible.builtin.copy:
+    content: "{{ docker_config | to_json }}"
+    dest: /etc/docker/daemon.json
+    mode: "0644"
 
 - name: Install docker
   ansible.builtin.apt:

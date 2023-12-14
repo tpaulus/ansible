@@ -1,0 +1,13 @@
+version: '3'
+services:
+  cloudflared:
+    image: "cloudflare/cloudflared:latest"
+    container_name: "cloudflared"
+    command:
+      - "tunnel"
+      - "run"
+    network_mode: host
+
+secrets:
+  cf_tunnel_token:
+    environment: "TUNNEL_TOKEN"

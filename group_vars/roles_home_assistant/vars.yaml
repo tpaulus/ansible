@@ -1,0 +1,1 @@
+cf_token: "{{ vault_cf_token }}"

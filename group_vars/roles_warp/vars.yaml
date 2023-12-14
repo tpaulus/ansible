@@ -1,0 +1,2 @@
+---
+tunnel_token: "{{ vault_tunnel_token }}"

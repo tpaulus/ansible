@@ -1,0 +1,84 @@
+---
+- name: Deploy Home Assistant
+  hosts: tags_home_assistant
+
+  vars:
+    docker_config:
+      metrics-addr: "0.0.0.0:9323"
+
+  roles:
+    - docker
+
+  tasks:
+    - name: Create Cloudflare API Token Secret
+      community.docker.docker_secret:
+        name: cf_api_token
+        data: "{{ cf_token | b64encode }}"
+        data_is_b64: true
+        state: present
+
+    - name: Create Data Dirs
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: directory
+        recurse: true
+        mode: '0755'
+      loop:
+        - "/etc/docker-data/traefik"
+        - "/etc/docker-data/home-assistant"
+
+    - name: Create and start Home Assistant
+      community.docker.docker_compose:
+        project_src: compose/home-assistant
+      register: output
+
+    - name: Show results
+      ansible.builtin.debug:
+        var: output
+
+- name: Configure Home Assistant Backups
+  hosts: tags_home_assistant
+
+  vars:
+    backup_script: /usr/sbin/backup-home-assistant.sh
+    log_file: /var/log/home-assistant-backup.log
+
+  tasks:
+    - name: Install Dependencies
+      ansible.builtin.apt:
+        name:
+          - nfs-common
+        state: present
+        update_cache: true
+
+    - name: Place Backup Script
+      vars:
+        backup_server: woodlandpark.brickyard.whitestar.systems
+        backup_path: /mnt/tank/Server\ Backups/HomeAssistant/
+        backup_source: /etc/docker-data/home-assistant
+
+      ansible.builtin.template:
+        src: home-assistant/backup_ha.sh.j2
+        dest: "{{ backup_script }}"
+        mode: "0755"
+
+    - name: Check if /etc/logrotate.d directory exists
+      ansible.builtin.stat:
+        path: /etc/logrotate.d
+      register: logrotate_dir
+
+    - name: Create logrotate entry for home-assistant-backup.log
+      ansible.builtin.template:
+        src: etc_logrotate.d_ha_backups.j2
+        dest: /etc/logrotate.d/ha_backups
+        owner: root
+        group: root
+        mode: "0644"
+      when: logrotate_dir.stat.exists
+
+    - name: Configure Cron Job
+      ansible.builtin.cron:
+        name: backup-home-assistant
+        minute: 0
+        hour: "*"
+        job: "bash {{ backup_script }} > {{ log_file }} 2>&1"
