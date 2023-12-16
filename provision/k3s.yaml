@@ -1,6 +1,7 @@
 ---
 - name: Build a cluster with HA control plane
   hosts: tags_k3s
+  become: true
   vars:
     k3s_become: true
     k3s_etcd_datastore: true

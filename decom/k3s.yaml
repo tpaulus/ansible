@@ -1,0 +1,36 @@
+---
+- name: Decommission K3s Server
+  hosts: tags_k3s
+  become: true
+  strategy: linear
+
+  tasks:
+    - name: Confirm Decommissioning
+      ansible.builtin.pause:
+        prompt: "Are you sure you want to decommission the K3s Primary Server? This action is irreversible. (yes/no)"
+      register: confirm_decommission
+
+    - name: Check Confirmation
+      ansible.builtin.fail:
+        msg: "Decommission aborted. You did not confirm."
+      when: not confirm_decommission.user_input | lower == 'yes'
+
+    - name: Cordoning the Node
+      ansible.builtin.command: "kubectl cordon {{ ansible_hostname }}"
+      failed_when: false
+      changed_when: true
+
+    - name: Draining the Node
+      ansible.builtin.command: "kubectl drain {{ ansible_hostname }} --ignore-daemonsets --delete-emptydir-data"
+      failed_when: false
+      changed_when: true
+
+    - name: Stop All Containers using kill script
+      ansible.builtin.command: "/usr/local/bin/k3s-killall.sh"
+      failed_when: false
+      changed_when: true
+
+    - name: Draining the Node
+      ansible.builtin.command: "kubectl delete node {{ ansible_hostname }} --wait=false"
+      failed_when: false
+      changed_when: true

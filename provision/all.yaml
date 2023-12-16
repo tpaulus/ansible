@@ -5,12 +5,6 @@
   ansible.builtin.import_playbook: common.yaml
 - name: TrueNAS
   ansible.builtin.import_playbook: truenas.yaml
-- name: Consul
-  ansible.builtin.import_playbook: consul.yaml
-- name: Nomad
-  ansible.builtin.import_playbook: nomad.yaml
-- name: Consul/Nomad Raft Backups
-  ansible.builtin.import_playbook: ../backups/hashi.yaml
 - name: Home Assistant
   ansible.builtin.import_playbook: home-assistant.yaml
 - name: Warp

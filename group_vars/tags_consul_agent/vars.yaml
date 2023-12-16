@@ -1,4 +1,0 @@
----
-ansible_become: true
-
-consul_acl_default_token: "{{ vault_consul_acl_default_token }}"
