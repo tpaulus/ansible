@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+
+{{ ansible_managed | comment }}
+
+set -e
+
+# Setup
+mount_dir=$(mktemp -d)
+sudo mount -t nfs {{ backup_server }}:{{ backup_share_path|replace(" ", "\ ") }} ${mount_dir}
+
+# Backup the data
+# --archive is -rlptgoD
+rsync -rlt --partial --delete {{ backup_source }}/* "${mount_dir}{{backup_path_prefix}}"
+
+# Clean Up
+umount "${mount_dir}"
+rmdir "${mount_dir}"
+
+# Update Backup Timestamp Metric
+echo k3s_etcd_backup_completed $(date +%s) > /var/lib/node_exporter/k3s_etcd_backup.prom.$$
+mv /var/lib/node_exporter/k3s_etcd_backup.prom.$$ /var/lib/node_exporter/k3s_etcd_backup.prom

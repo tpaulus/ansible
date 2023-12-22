@@ -23,3 +23,67 @@
           - nfs-common
         state: present
         update_cache: true
+
+
+- name: Configure etcd Backups
+  hosts: tags_k3s
+  become: true
+  vars:
+    backup_script: /usr/sbin/backup-k3s-etcd.sh
+    log_file: /var/log/k3s-etcd-backup.log
+
+  tasks:
+    - name: Install Dependencies
+      ansible.builtin.apt:
+        name:
+          - nfs-common
+          - rsync
+          - logrotate
+        state: present
+        update_cache: true
+
+    - name: Place Backup Script
+      vars:
+        backup_server: woodlandpark.brickyard.whitestar.systems
+        backup_share_path: "/mnt/tank/Server\ Backups/k3s-etcd"
+        backup_path_prefix: "/{{ ansible_hostname }}"
+        backup_source: /var/lib/rancher/k3s/server/db/snapshots
+
+      ansible.builtin.template:
+        src: k3s/backup_etcd.sh.j2
+        dest: "{{ backup_script }}"
+        mode: "0755"
+
+    - name: Check if /etc/logrotate.d directory exists
+      ansible.builtin.stat:
+        path: /etc/logrotate.d
+      register: logrotate_dir
+
+    - name: "Create logrotate entry for {{ log_file }}"
+      ansible.builtin.template:
+        src: k3s/etc_logrotate.d_etcd_backups.j2
+        dest: /etc/logrotate.d/k3s_etcd_backups
+        owner: root
+        group: root
+        mode: "0644"
+      when: logrotate_dir.stat.exists
+
+    - name: Configure Cron Job
+      ansible.builtin.cron:
+        name: backup-k3s-etcd
+        minute: 0
+        hour: "1,13"
+        job: "bash {{ backup_script }} > {{ log_file }} 2>&1"
+
+- name: Allow Access to Share
+  hosts: device_roles_storage
+  environment:
+    middleware_method: client
+  vars:
+    allowed_host_ips: "{{ groups['tags_k3s'] | map('extract', hostvars, 'ansible_host') | list | sort }}"
+  tasks:
+    - name: Update Home Assistant Backup Share  # noqa: args[module]
+      arensb.truenas.sharing_nfs:
+        name: "Server Backups - K3s etcd"
+        path: "/mnt/tank/Server\ Backups/k3s-etcd"
+        hosts: "{{ allowed_host_ips }}"

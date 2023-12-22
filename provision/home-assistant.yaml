@@ -67,6 +67,7 @@
         name:
           - nfs-common
           - rsync
+          - logrotate
         state: present
         update_cache: true
 
