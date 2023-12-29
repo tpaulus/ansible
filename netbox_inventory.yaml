@@ -7,6 +7,10 @@ services: false
 flatten_config_context: true
 flatten_local_context_data: true
 
+compose:
+  netbox_device_id: id
+  oob_ip: oob_ip.address
+
 group_by:
   - racks
   - device_roles

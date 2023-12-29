@@ -166,3 +166,30 @@
         enabled: true
         name: unattended-upgrades
         state: "restarted"
+
+- name: Update MOTD
+  hosts: all
+  become: true
+
+  tasks:
+    - name: Disable Uname banner in PAM
+      ansible.builtin.replace:
+        path: /etc/pam.d/sshd
+        regexp: '^(session\s+optional\s+pam_motd\.so\s+motd=/run/motd\.dynamic.*)$'
+        replace: '#\1'
+      notify:
+        - Restart sshd
+
+    - name: Update MOTD
+      ansible.builtin.template:
+        src: motd.j2
+        dest: /etc/motd
+        mode: "0644"
+      vars:
+        netbox_url: "https://netbox.whitestar.systems/dcim/devices/{{ netbox_device_id }}/"
+
+  handlers:
+    - name: Restart sshd
+      ansible.builtin.service:
+        name: sshd
+        state: restarted

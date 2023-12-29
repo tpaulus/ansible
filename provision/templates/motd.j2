@@ -1,0 +1,30 @@
+{%- set bold = "[1m" -%}
+{%- set uline = "[4m" -%}
+{%- set reset = "(B[m" -%}
+{%- set lgrey = "[0;37m" -%}
+{%- set lblue = "[1;34m" -%}
+
+{{ lgrey ~ "======" ~ reset }} Welcome to {{ bold ~ ansible_hostname ~ reset }} {{ lgrey ~ "======" ~ reset }}
+
+{# Keep this empty line #}
+{{ bold }}Last Ansible Run:{{reset}} {{ ansible_date_time.iso8601 }}
+{{ bold }}Booted:{{reset}} {{ ansible_lsb['id'] }} {{ ansible_distribution_version }} ({{ ansible_lsb['codename'] }})
+{{ bold }}Kernel:{{reset}} {{ ansible_kernel }} {{ ansible_kernel_version }}
+
+{{ bold }}Roles:{{ reset }}
+{{ device_roles | to_nice_yaml | trim() | indent(2, first=true) }}
+
+{{ bold }}Tags:{{ reset }}
+{{ tags | to_nice_yaml | trim() | indent(2, first=true) }}
+
+{% if netbox_url -%}
+{{ bold }}Netbox:{{ reset }} {{ lblue ~ uline ~ netbox_url ~ reset }}
+{%- endif %}
+
+
+{{ bold }}IPs: {{ reset }}
+  - {{ primary_ip4 }} (Primary)
+{% if oob_ip %}  - {{oob_ip | replace('/32', '') }} (BMC){% endif %}
+
+
+{# A comment to have an extra empty line at the end that is not removed by editors #}
