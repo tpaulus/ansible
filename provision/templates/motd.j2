@@ -8,23 +8,30 @@
 
 {# Keep this empty line #}
 {{ bold }}Last Ansible Run:{{reset}} {{ ansible_date_time.iso8601 }}
+{%- if ansible_lsb %}
+
 {{ bold }}Booted:{{reset}} {{ ansible_lsb['id'] }} {{ ansible_distribution_version }} ({{ ansible_lsb['codename'] }})
+{%- endif %}
+
 {{ bold }}Kernel:{{reset}} {{ ansible_kernel }} {{ ansible_kernel_version }}
 
-{{ bold }}Roles:{{ reset }}
-{{ device_roles | to_nice_yaml | trim() | indent(2, first=true) }}
+{% if device_roles %}
+{{ bold }}Role:{{ reset }} {{ device_roles[0] }}
+{% endif %}
+{% if tags %}
 
 {{ bold }}Tags:{{ reset }}
 {{ tags | to_nice_yaml | trim() | indent(2, first=true) }}
+{% endif %}
 
 {% if netbox_url -%}
 {{ bold }}Netbox:{{ reset }} {{ lblue ~ uline ~ netbox_url ~ reset }}
-{%- endif %}
-
+{% endif %}
 
 {{ bold }}IPs: {{ reset }}
   - {{ primary_ip4 }} (Primary)
-{% if oob_ip %}  - {{oob_ip | replace('/32', '') }} (BMC){% endif %}
-
+{% if oob_ip is defined %}
+  - {{ oob_ip | replace('/32', '') }} (BMC)
+{% endif %}
 
 {# A comment to have an extra empty line at the end that is not removed by editors #}

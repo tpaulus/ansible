@@ -183,7 +183,7 @@
     - name: Update MOTD
       ansible.builtin.template:
         src: motd.j2
-        dest: /etc/motd
+        dest: "{{ '/etc/motd.template' if ansible_facts['os_family'] == 'FreeBSD' else '/etc/motd' }}"
         mode: "0644"
       vars:
         netbox_url: "https://netbox.whitestar.systems/dcim/devices/{{ netbox_device_id }}/"
