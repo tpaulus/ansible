@@ -47,8 +47,28 @@
   hosts:
     - device_roles_compute
     - device_roles_storage
-  roles:
-    - role: prometheus.prometheus.node_exporter
+  become: true
+
+  tasks:
+    - name: Create the node_exporter group
+      ansible.builtin.group:
+        name: "node-exp"
+        state: present
+        system: true
+
+    - name: Create the node_exporter user
+      ansible.builtin.user:
+        name: "node-exp"
+        groups: "node-exp"
+        append: true
+        shell: /usr/sbin/nologin
+        system: true
+        create_home: false
+        home: /
+
+    - name: Install Node Exporter
+      ansible.builtin.include_role:
+        name: prometheus.prometheus.node_exporter
 
 - name: Configure NTP
   hosts: device_roles_compute
