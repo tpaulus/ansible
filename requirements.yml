@@ -5,7 +5,7 @@ collections:
   - arensb.truenas
   - netbox.netbox
   - name: prometheus.prometheus
-    version: 0.10.1
+    version: 0.11.0
 
 roles:
   - name: xanmanning.k3s
