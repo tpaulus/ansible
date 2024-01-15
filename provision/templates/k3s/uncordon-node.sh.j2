@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+
+{{ ansible_managed | comment }}
+
+set -e
+
+MARKER_FILE="/etc/k3s-drained"
+
+echo "Uncordoning the Kubernetes node..."
+
+# Add the command to uncordon the node
+kubectl uncordon $(hostname)
+    
+if [ -e "$MARKER_FILE" ]; then
+    echo "Deleting the marker file..."
+    rm -f "$MARKER_FILE"
+fi

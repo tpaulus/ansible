@@ -1,0 +1,16 @@
+{{ ansible_managed | comment }}
+
+[Unit]
+Description=Uncordon Kubernetes Node if drained marker is present
+After=k3s.service
+
+[Service]
+Type=simple
+ExecCondition="/usr/bin/ls /etc/k3s-drained"
+ExecStart=/etc/systemd/scripts/uncordon-node.sh
+StandardOutput=syslog
+StandardError=syslog
+SyslogIdentifier=uncordon-node
+
+[Install]
+WantedBy=multi-user.target

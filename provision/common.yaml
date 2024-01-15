@@ -111,11 +111,24 @@
   tasks:
     - name: Install Dependencies
       when: ansible_facts['hostname'] != "woodlandpark"
-      ansible.builtin.apt:
+      ansible.builtin.package:
         name:
           - nut
         state: present
-        update_cache: true
+      notify:
+        - Enable NUT service
+
+    - name: Ensure NUT Config Dir Exists
+      ansible.builtin.file:
+        path: "/etc/nut"
+        state: directory
+        mode: '0755'
+
+    - name: Place Shutdown Script
+      ansible.builtin.template:
+        dest: "/sbin/ups-shutdown"
+        src: "common/ups-shutdown.sh.j2"
+        mode: "0755"
 
     - name: Set NUT Mode
       when: ansible_facts['hostname'] != "woodlandpark"
@@ -145,10 +158,14 @@
       failed_when: false
 
   handlers:
+    - name: Enable NUT service
+      when: ansible_facts['hostname'] != "beaconhill"
+      ansible.builtin.command: sysrc nut_upsmon_enable="YES" nut_enable="YES"
+      changed_when: true
     - name: Restart NUT
       ansible.builtin.service:
         enabled: true
-        name: nut-client
+        name: "{% if ansible_facts['hostname'] == 'beaconhill' %}nut{% else %}nut-client{% endif %}"
         state: "restarted"
 
 - name: Configure Unattended Upgrades

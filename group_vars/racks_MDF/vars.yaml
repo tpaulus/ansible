@@ -1,0 +1,3 @@
+upsmon_ups_name: ups@woodlandpark.brickyard.whitestar.systems
+upsmon_usp_user: "{{ upsmon_usp_user_vault }}"
+upsmon_ups_password: " {{ upsmon_ups_password_vault }}"

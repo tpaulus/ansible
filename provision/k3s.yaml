@@ -87,3 +87,36 @@
         name: "Server Backups - K3s etcd"
         path: "/mnt/tank/Server\ Backups/k3s-etcd"
         hosts: "{{ allowed_host_ips }}"
+
+- name: Set up Uncordon Node systemd service
+  hosts: tags_k3s
+  become: true
+
+  tasks:
+    - name: Create script directory
+      ansible.builtin.file:
+        path: /etc/systemd/scripts
+        state: directory
+        mode: "0755"
+
+    - name: Copy uncordon-node.sh script
+      ansible.builtin.template:
+        src: k3s/uncordon-node.sh.j2
+        dest: /etc/systemd/scripts/uncordon-node.sh
+        mode: '0755'
+
+    - name: Create uncordon-node systemd service unit
+      ansible.builtin.template:
+        src: k3s/uncordon-node.service.j2
+        dest: /etc/systemd/system/uncordon-node.service
+        mode: '0644'
+
+    - name: Reload systemd
+      ansible.builtin.systemd:
+        daemon_reload: true
+
+    - name: Enable uncordon-node service
+      ansible.builtin.systemd:
+        name: uncordon-node
+        enabled: true
+        state: started

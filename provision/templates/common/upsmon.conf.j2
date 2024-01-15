@@ -1,8 +1,8 @@
 {{ ansible_managed | comment }}
-MONITOR ups@woodlandpark.brickyard.whitestar.systems 1 slaveuser c2xhdmVwYXNz slave
+MONITOR {{ upsmon_ups_name }} 1 {{ upsmon_usp_user }} {{ upsmon_ups_password }} secondary
 
 MINSUPPLIES 1
-SHUTDOWNCMD "/sbin/shutdown -h +0"
+SHUTDOWNCMD "/sbin/ups-shutdown"
 POLLFREQ 5
 POLLFREQALERT 5
 HOSTSYNC 15
