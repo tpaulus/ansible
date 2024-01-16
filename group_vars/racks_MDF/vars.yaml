@@ -1,3 +1,9 @@
-upsmon_ups_name: ups@woodlandpark.brickyard.whitestar.systems
-upsmon_usp_user: "{{ upsmon_usp_user_vault }}"
-upsmon_ups_password: " {{ upsmon_ups_password_vault }}"
+ups_name: ups
+ups_host: "{{ ansible_default_ipv4['gateway'] }}"
+upsmon_ups_name: "{{ ups_name }}@{{ ups_host}}"
+
+ups_monuser: "{{ ups_monuser_vault }}"
+ups_monuser_password: " {{ ups_monuser_password_vault }}"
+
+ups_ctlusr: "{{ ups_ctlusr_vault }}"
+ups_ctlusr_password: "{{ ups_ctlusr_password_vault }}"

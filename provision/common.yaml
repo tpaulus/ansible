@@ -105,12 +105,13 @@
         name: systemd-timesyncd.service
         state: "restarted"
 
-- name: Configre UPS Monitoring
-  hosts: racks_MDF
+- name: Configure UPS Monitoring (Primary)
+  hosts: racks_MDF:&tags_nut_primary  # NUT Primary in the MDF Rack
   become: true
+  vars:
+    dir_prefix: "{% if ansible_facts['os_family'] == 'FreeBSD' %}/usr/local{% endif %}"
   tasks:
     - name: Install Dependencies
-      when: ansible_facts['hostname'] != "woodlandpark"
       ansible.builtin.package:
         name:
           - nut
@@ -120,7 +121,15 @@
 
     - name: Ensure NUT Config Dir Exists
       ansible.builtin.file:
-        path: "/etc/nut"
+        path: "{{ dir_prefix }}/etc/nut"
+        state: directory
+        mode: '0755'
+
+    - name: Ensure NUT Run Dir Exists
+      ansible.builtin.file:
+        path: "/var/run/nut"
+        owner: 'nut'
+        group: 'nut'
         state: directory
         mode: '0755'
 
@@ -131,25 +140,143 @@
         mode: "0755"
 
     - name: Set NUT Mode
-      when: ansible_facts['hostname'] != "woodlandpark"
+      vars:
+        nut_mode: netserver
       ansible.builtin.template:
-        dest: "/etc/nut/nut.conf"
+        dest: "{{ dir_prefix }}/etc/nut/nut.conf"
         src: "common/nut.conf.j2"
         mode: "0644"
       notify:
         - Restart NUT
 
-    - name: Set NUT Server
-      when: ansible_facts['hostname'] != "woodlandpark"
+    - name: Configure UPS to Monitor
       ansible.builtin.template:
-        dest: "/etc/nut/upsmon.conf"
-        src: "common/upsmon.conf.j2"
+        dest: "{{ dir_prefix }}/etc/nut/ups.conf"
+        src: "common/ups.conf.j2"
+        mode: "0644"
+      notify:
+        - Restart NUT
+
+    - name: Enable non-localhost access
+      ansible.builtin.template:
+        dest: "{{ dir_prefix }}/etc/nut/upsd.conf"
+        src: "common/upsd.conf.j2"
+        mode: "0644"
+      notify:
+        - Restart NUT
+
+    - name: Configure upsd users
+      ansible.builtin.template:
+        dest: "{{ dir_prefix }}/etc/nut/upsd.users"
+        src: "common/upsd.users.j2"
+        mode: "0600"
+        owner: 'nut'
+        group: 'wheel'
+      notify:
+        - Restart NUT
+
+    - name: Install upssched CMD Script
+      ansible.builtin.template:
+        dest: "/usr/local/bin/upssched-cmd"
+        src: "common/upssched-cmd.j2"
+        mode: "0755"
+
+    - name: Set NUT Server
+      vars:
+        upssched_enabled: true
+      ansible.builtin.template:
+        dest: "{{ dir_prefix }}/etc/nut/upsmon.conf"
+        src: "common/upsmon-primary.conf.j2"
+        mode: "0644"
+      notify:
+        - Restart NUT
+
+    - name: Configure upssched
+      vars:
+        shutdown_delay: 360  # 6m
+      ansible.builtin.template:
+        dest: "{{ dir_prefix }}/etc/nut/upssched.conf"
+        src: "common/upssched.conf.j2"
+        mode: "0644"
+      notify:
+        - Restart NUT
+
+  handlers:
+    - name: Enable NUT service
+      when: ansible_facts['hostname'] == "BeaconHill"
+      ansible.builtin.command: sysrc nut_upsmon_enable="YES" nut_enable="YES"
+      changed_when: true
+
+    - name: Restart NUT
+      ansible.builtin.service:
+        enabled: true
+        name: "{% if ansible_facts['hostname'] == 'BeaconHill' %}nut{% else %}nut-driver{% endif %}"
+        state: "restarted"
+
+- name: Configure UPS Monitoring (Secondary)
+  hosts: racks_MDF:!tags_nut_primary  # All nodes in the MDF Rack, except the NUT Primary
+  become: true
+  vars:
+    dir_prefix: "{% if ansible_facts['os_family'] == 'FreeBSD' %}/usr/local{% endif %}"
+
+  tasks:
+    - name: Install Dependencies
+      ansible.builtin.package:
+        name:
+          - nut
+        state: present
+      notify:
+        - Enable NUT service
+
+    - name: Ensure NUT Config Dir Exists
+      ansible.builtin.file:
+        path: "{{ dir_prefix }}/etc/nut"
+        state: directory
+        mode: '0755'
+
+    - name: Place Shutdown Script
+      ansible.builtin.template:
+        dest: "/sbin/ups-shutdown"
+        src: "common/ups-shutdown.sh.j2"
+        mode: "0755"
+
+    - name: Set NUT Mode
+      vars:
+        nut_mode: netclient
+      ansible.builtin.template:
+        dest: "{{ dir_prefix }}/etc/nut/nut.conf"
+        src: "common/nut.conf.j2"
+        mode: "0644"
+      notify:
+        - Restart NUT
+
+    - name: Install upssched CMD Script
+      ansible.builtin.template:
+        dest: "/usr/local/bin/upssched-cmd"
+        src: "common/upssched-cmd.j2"
+        mode: "0755"
+
+    - name: Set NUT Server
+      vars:
+        upssched_enabled: true
+      ansible.builtin.template:
+        dest: "{{ dir_prefix }}/etc/nut/upsmon.conf"
+        src: "common/upsmon-secondary.conf.j2"
+        mode: "0644"
+      notify:
+        - Restart NUT
+
+    - name: Configure upssched
+      vars:
+        shutdown_delay: 240  # 4m
+      ansible.builtin.template:
+        dest: "{{ dir_prefix }}/etc/nut/upssched.conf"
+        src: "common/upssched.conf.j2"
         mode: "0644"
       notify:
         - Restart NUT
 
     - name: Disable NUT Driver
-      when: ansible_facts['hostname'] != "woodlandpark"
       ansible.builtin.systemd:
         name: "nut-driver"
         enabled: false
@@ -159,9 +286,10 @@
 
   handlers:
     - name: Enable NUT service
-      when: ansible_facts['hostname'] != "beaconhill"
+      when: ansible_facts['hostname'] == "beaconhill"
       ansible.builtin.command: sysrc nut_upsmon_enable="YES" nut_enable="YES"
       changed_when: true
+
     - name: Restart NUT
       ansible.builtin.service:
         enabled: true
@@ -220,7 +348,7 @@
     - name: Update MOTD
       ansible.builtin.template:
         src: motd.j2
-        dest: "{{ '/etc/motd.template' if ansible_facts['os_family'] == 'FreeBSD' else '/etc/motd' }}"
+        dest: "{{ '/var/run/motd' if ansible_facts['os_family'] == 'FreeBSD' else '/etc/motd' }}"
         mode: "0644"
       vars:
         netbox_url: "https://netbox.whitestar.systems/dcim/devices/{{ netbox_device_id }}/"
