@@ -47,7 +47,7 @@ nullroute = "0.0.0.0"
 nullroutev6 = "0:0:0:0:0:0:0:0"
 
 # nameservers to forward queries to
-nameservers = []
+nameservers = ["127.0.0.1:5302"]
 
 # concurrency interval for lookups in miliseconds
 interval = 200
@@ -59,7 +59,7 @@ timeout = 5
 expire = 600
 
 # cache capacity, 0 for infinite
-maxcount = 0
+maxcount = 10000
 
 # question cache capacity, 0 for infinite but not recommended (this is used for storing logs)
 questioncachecap = 5000
@@ -90,7 +90,7 @@ togglename = ""
 reactivationdelay = 300
 
 #Dns over HTTPS provider to use.
-DoH = "https://{{ cloudflare_gateway_location }}.cloudflare-gateway.com/dns-query"
+DoH = ""
 
 # Address for Prometheus to host metrics
 # Set to the empty string to disable
