@@ -1,6 +1,7 @@
 (common) {
   prometheus 0.0.0.0:9253
   errors
+  loop
 }
 
 . {
@@ -20,7 +21,7 @@
 
   forward . 127.0.0.1:5301 127.0.0.1:5303 {
     policy sequential  # Forces Cloudflare as a backup, not round-robin
-    health_check 5s
+    health_check 5s cloudflare.com
   }
 }
 
@@ -33,6 +34,6 @@
   bind lo0
   forward . tls://172.64.36.1 tls://172.64.36.2 {
      tls_servername {{ cloudflare_gateway_location }}.cloudflare-gateway.com
-     health_check 5s
+     health_check 5s cloudflare.com
   }
 }

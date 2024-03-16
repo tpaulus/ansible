@@ -2,6 +2,7 @@
 version = "1.0.10"
 
 # list of sources to pull blocklists from, stores them in ./sources
+# Find more sources at https://firebog.net
 sources = [
 "https://mirror1.malwaredomains.com/files/justdomains",
 "https://raw.githubusercontent.com/StevenBlack/hosts/master/hosts",
@@ -35,7 +36,7 @@ dashboard = true
 bind = "127.0.0.1:5301"
 
 # address to bind to for the API server
-api = "10.0.1.1:8080"
+api = "{{ primary_ip4 }}:8080"
 
 # response to blocked queries with a NXDOMAIN
 nxdomain = false
@@ -47,7 +48,7 @@ nullroute = "0.0.0.0"
 nullroutev6 = "0:0:0:0:0:0:0:0"
 
 # nameservers to forward queries to
-nameservers = ["127.0.0.1:5302"]
+nameservers = ["172.64.36.1:53", "172.64.36.2:53"]
 
 # concurrency interval for lookups in miliseconds
 interval = 200
@@ -90,8 +91,8 @@ togglename = ""
 reactivationdelay = 300
 
 #Dns over HTTPS provider to use.
-DoH = ""
+DoH = "https://{{ cloudflare_gateway_location }}.cloudflare-gateway.com/dns-query"
 
 # Address for Prometheus to host metrics
 # Set to the empty string to disable
-PrometheusAddr = "10.0.1.1:10005"
+PrometheusAddr = "{{ primary_ip4 }}:10005"

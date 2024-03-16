@@ -99,7 +99,7 @@
     - name: Set Dashboard API Server
       ansible.builtin.copy:
         content: |
-          var apiURL = 'http://10.0.1.1:8080/'
+          var apiURL = 'http:/{{ primary_ip4 }}:8080/'
         dest: '{{ grimd_local_path }}/dashboard/reaper/js/config.js'
         mode: "0644"
       delegate_to: localhost
