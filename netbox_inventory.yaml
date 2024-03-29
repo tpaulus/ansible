@@ -27,3 +27,4 @@ device_query_filters:
   - has_primary_ip: 'true'
   - status__n: offline     # Adding '__n' to a field searches for the negation of the value.
   - manufacturer_id__n: 2  # Don't touch Unifi Devices
+  - site_id: 1             # Only modify WSS Devices
