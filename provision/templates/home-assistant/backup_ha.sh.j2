@@ -6,10 +6,9 @@ set -e
 
 # Setup
 mount_dir=$(mktemp -d)
-sudo mount -t nfs {{ backup_server }}:{{ backup_path|replace(" ", "\ ") }} ${mount_dir}
+sudo mount -t nfs {{ backup_server }}:{{ backup_path }} ${mount_dir}
 
 # Backup the data
-# --archive is -rlptgoD
 rsync -rlt --partial --delete {{ backup_source }}/* "${mount_dir}"
 
 # Clean Up
