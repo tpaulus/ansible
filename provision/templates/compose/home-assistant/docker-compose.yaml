@@ -22,7 +22,7 @@ services:
       - "--ping=true"
       - "--metrics.prometheus=true"
       - "--metrics.prometheus.entrypoint=traefik"
-    
+
     network_mode: host
     environment:
       - CF_DNS_API_TOKEN={{ cf_token }}
@@ -32,6 +32,9 @@ services:
       - "/var/run/docker.sock:/var/run/docker.sock:ro"
 
     restart: unless-stopped
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
 
   homeassistant:
     container_name: homeassistant
@@ -48,6 +51,8 @@ services:
     restart: unless-stopped
     privileged: true
     network_mode: host
+    security_opt:
+      - no-new-privileges:true
 
   watchtower:
     container_name: watchtower
@@ -57,6 +62,9 @@ services:
     environment:
       - WATCHTOWER_CLEANUP=true
     restart: unless-stopped
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
 
   cadvisor:
     image: gcr.io/cadvisor/cadvisor:v0.49.1
@@ -73,3 +81,6 @@ services:
       - /sys:/sys:ro
       - /var/lib/docker/:/var/lib/docker:ro
     restart: unless-stopped
+    read_only: true
+    security_opt:
+      - no-new-privileges:true

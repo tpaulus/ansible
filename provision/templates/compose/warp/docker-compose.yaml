@@ -10,3 +10,6 @@ services:
       - "{{ tunnel_token }}"
     network_mode: host
     restart: unless-stopped
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
