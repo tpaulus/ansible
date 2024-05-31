@@ -1,11 +1,18 @@
 ---
 collections:
-  - ansible.posix
-  - ansible.utils
-  - arensb.truenas
-  - netbox.netbox
+  - name: community.general
+    version: 9.0.1
+  - name: ansible.posix
+    version: 1.5.4
+  - name: ansible.utils
+    version: 4.1.0
+  - name: arensb.truenas
+    version: 1.9.5
+  - name: netbox.netbox
+    version: 3.19.1
   - name: prometheus.prometheus
     version: 0.16.3
 
 roles:
   - name: xanmanning.k3s
+    version: v3.4.4

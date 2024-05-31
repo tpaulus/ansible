@@ -1,6 +1,6 @@
-plugin: "netbox.netbox.nb_inventory"
-api_endpoint: "http://netbox.ing.k3s.brickyard.whitestar.systems"
-validate_certs: false
+plugin: netbox.netbox.nb_inventory
+api_endpoint: "https://netbox.ing.k3s.brickyard.whitestar.systems"
+validate_certs: true
 config_context: true
 dns_name: true
 services: false

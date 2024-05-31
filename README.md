@@ -3,6 +3,11 @@ Ansible Playbooks
 
 Ansible Playbooks for common server configuration and managment.
 
+## Host Dependencies
+On a Mac...
+```shell
+brew install python-pytz unzip gnu-tar
+```
 
 ## Fish Wrappers
 Local secrets are stored in 1Password, which can be accessed via the 1Password CLI (op).
@@ -66,4 +71,10 @@ function ansible-inventory
         set -e $field
     end
 end
+```
+
+## Galaxy
+Install necessary Galaxy Collections & Roles via...
+```shell
+ansible-galaxy install -r requirements.yml
 ```
