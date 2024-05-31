@@ -36,12 +36,15 @@
   become: true
 
   tasks:
+    - name: Check if /usr/bin/apt is executable
+      ansible.builtin.stat:
+        path: /usr/bin/apt
+      register: apt_file_stat
+
     - name: Enable APT
-      ansible.builtin.shell: chmod +x /bin/apt*
+      ansible.builtin.command: /usr/bin/install-dev-tools
       changed_when: false
-    - name: Enable dpkg
-      ansible.builtin.command: chmod +x /bin/dpkg
-      changed_when: false
+      when: not apt_file_stat.stat.executable
 
 - name: Prom Node Exporter
   hosts:
@@ -65,6 +68,23 @@
         system: true
         create_home: false
         home: /
+
+    - name: Get Latest Node Exporter Version if specific version not pinned
+      when: node_exporter_version is not defined
+      block:
+        - name: Get Node Exporter latest release
+          ansible.builtin.uri:
+            url: https://api.github.com/repos/prometheus/node_exporter/releases/latest
+            return_content: true
+          register: node_exporter_release
+
+        - name: Extract Node Exporter version
+          ansible.builtin.set_fact:
+            node_exporter_version: "{{ node_exporter_release.json.tag_name[1:] }}"
+
+        - name: Print Node Exporter version
+          ansible.builtin.debug:
+            msg: "Latest Node Exporter version: {{ node_exporter_version }}"
 
     - name: Install Node Exporter
       ansible.builtin.include_role:
