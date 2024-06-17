@@ -1,6 +1,6 @@
 #!/bin/sh
 #
-# PROVIDE: coredns
+# PROVIDE: unbound_exporter
 # REQUIRE: FILESYSTEMS network
 # KEYWORD: shutdown
 
@@ -8,34 +8,34 @@
 
 . /etc/rc.subr
 
-name="coredns"
+name="{{ name }}"
 rcvar=${name}_enable
 
-command="/usr/local/sbin/coredns"
-command_args="-conf /etc/coredns/Corefile"
+command="{{ binary_path }}"
+command_args="-unbound.ca "/var/unbound/unbound_server.pem" -unbound.cert "/var/unbound/unbound_control.pem" -unbound.key "/var/unbound/unbound_control.key" -unbound.host "tcp://127.0.0.1:953" -web.listen-address "10.0.1.1:9167""
 
 pidfile="/var/run/${name}.pid"
-required_files="/etc/coredns/Corefile"
+required_files=""
 
 start_precmd="${name}_prestart"
 start_cmd="${name}_start"
 stop_cmd="${name}_stop"
 
-coredns_prestart() {
-echo "Starting CoreDNS..."
+unbound_exporter_prestart() {
+echo "Starting Unbound Exporter..."
 }
 
-coredns_start() {
+unbound_exporter_start() {
 if [ ! -e ${pidfile} ]; then
     touch ${pidfile}
     chown root:wheel ${pidfile}
 fi
-echo "Starting CoreDNS..."
+echo "Starting Unbound Exporter..."
 /usr/sbin/daemon -cf -p ${pidfile} ${command} ${command_args}
 }
 
-coredns_stop() {
-echo "Stopping CoreDNS..."
+unbound_exporter_stop() {
+echo "Stopping Unbound Exporter..."
 if [ -e ${pidfile} ]; then
     kill -INT `cat ${pidfile}`
     rm ${pidfile}

@@ -1,27 +1,28 @@
 ---
-- name: Install CoreDNS on FreeBSD
+- name: Install Unbound Exporter on FreeBSD
   hosts: device_roles_firewall
   become: true
   gather_facts: true
 
   vars:
-    coredns_version: "v1.11.1"
+    unbound_exporter_version: "v0.4.6"
+    exporter_local_path: /tmp/unbound-exporter
 
-    coredns_local_path: /tmp/coredns
+    bin_path: /usr/local/sbin/unbound_exporter
 
   tasks:
-    - name: Clone CoreDNS repository
+    - name: Clone Unbound Exporter repository
       ansible.builtin.git:
-        repo: https://github.com/coredns/coredns.git
-        dest: '{{ coredns_local_path }}'
-        version: "{{ coredns_version }}"
+        repo: https://github.com/letsencrypt/unbound_exporter.git
+        dest: '{{ exporter_local_path }}'
+        version: "{{ unbound_exporter_version }}"
       delegate_to: localhost
       become: false
 
-    - name: Cross-compile CoreDNS binary  # noqa: command-instead-of-shell
-      ansible.builtin.shell: go build -o /tmp/coredns/coredns -v
+    - name: Cross-compile binary  # noqa: command-instead-of-shell
+      ansible.builtin.shell: go build -o {{ exporter_local_path }}/unbound_exporter -v
       args:
-        chdir: '{{ coredns_local_path }}'
+        chdir: '{{ exporter_local_path }}'
       environment:
         GOOS: freebsd
         GOARCH: amd64
@@ -29,136 +30,46 @@
       changed_when: true
       become: false
 
-    - name: Copy CoreDNS binary
+    - name: Copy Unbound Exporter binary
       ansible.builtin.copy:
-        src: '{{ coredns_local_path }}/coredns'
-        dest: /usr/local/sbin/coredns
+        src: '{{ exporter_local_path }}/unbound_exporter'
+        dest: '{{ bin_path }}'
         mode: "0755"
 
     - name: Cleanup Build Directory
       ansible.builtin.file:
-        path: "{{ coredns_local_path }}"
+        path: "{{ exporter_local_path }}"
         state: absent
       delegate_to: localhost
       become: false
 
-    - name: Create CoreDNS service directory
+    - name: Create RC service directory
       ansible.builtin.file:
         path: /usr/local/etc/rc.d
         state: directory
         mode: "0644"
 
-    - name: Create CoreDNS rc.d script
+    - name: Create Exporter rc.d script
+      vars:
+        name: unbound_exporter
+        binary_path: "{{ bin_path }}"
       ansible.builtin.template:
-        src: router/coredns_rc.j2
-        dest: /usr/local/etc/rc.d/coredns
+        src: router/unbound_exporter_rc.j2
+        dest: /usr/local/etc/rc.d/unbound_exporter
         mode: "0755"
 
-    - name: Create CoreDNS configuration directory
-      ansible.builtin.file:
-        path: /etc/coredns
-        state: directory
-        mode: "0755"
+    - name: Allow Read Access to Keys
+      ansible.builtin.command: chmod 660 /var/unbound/unbound_control.key
 
-    - name: Copy Corefile
-      ansible.builtin.template:
-        src: router/Corefile.j2
-        dest: /etc/coredns/Corefile
-        mode: "0644"
+    - name: Add Root to Unbound Group
+      ansible.builtin.command: pw group mod unbound -m root
 
-    - name: Enable CoreDNS service
-      ansible.builtin.command: sysrc coredns_enable=YES
+    - name: Enable Exporter service
+      ansible.builtin.command: sysrc unbound_exporter_enable=YES
       changed_when: true
 
-    - name: Start CoreDNS service
+    - name: Start Exporter service
       ansible.builtin.service:
-        name: coredns
-        state: restarted
-        enabled: true
-
-- name: Install grimd on FreeBSD
-  hosts: device_roles_firewall
-  become: true
-  gather_facts: true
-
-  vars:
-    grimd_version: "HEAD"
-
-    grimd_local_path: /tmp/grimd
-
-  tasks:
-    - name: Clone grimd repository
-      ansible.builtin.git:
-        repo: https://github.com/tpaulus/grimd.git   # TODO Revert back to Upstream once [PR #116](https://github.com/looterz/grimd/pull/116) is merged
-        dest: '{{ grimd_local_path }}'
-        version: "{{ grimd_version }}"
-        recursive: true
-      delegate_to: localhost
-      become: false
-
-    - name: Set Dashboard API Server
-      ansible.builtin.copy:
-        content: |
-          var apiURL = 'http:/{{ primary_ip4 }}:8080/'
-        dest: '{{ grimd_local_path }}/dashboard/reaper/js/config.js'
-        mode: "0644"
-      delegate_to: localhost
-      become: false
-
-    - name: Cross-compile grimd binary  # noqa: command-instead-of-shell
-      ansible.builtin.shell: go build -o /tmp/grimd/grimd -v
-      args:
-        chdir: '{{ grimd_local_path }}'
-      environment:
-        GOOS: freebsd
-        GOARCH: amd64
-      delegate_to: localhost
-      changed_when: true
-      become: false
-
-    - name: Copy grimd binary
-      ansible.builtin.copy:
-        src: '{{ grimd_local_path }}/grimd'
-        dest: /usr/local/sbin/grimd
-        mode: "0755"
-
-    - name: Cleanup Build Directory
-      ansible.builtin.file:
-        path: "{{ grimd_local_path }}"
-        state: absent
-      delegate_to: localhost
-      become: false
-
-    - name: Create grimd service directory
-      ansible.builtin.file:
-        path: /usr/local/etc/rc.d
-        state: directory
-        mode: "0644"
-
-    - name: Create grimd rc.d script
-      ansible.builtin.template:
-        src: router/grimd_rc.j2
-        dest: /usr/local/etc/rc.d/grimd
-        mode: "0755"
-
-    - name: Create grimd configuration directory
-      ansible.builtin.file:
-        path: /etc/grimd
-        state: directory
-        mode: "0755"
-
-    - name: Copy grimd.toml
-      ansible.builtin.template:
-        src: router/grimd.toml.j2
-        dest: /etc/grimd/grimd.toml
-        mode: "0644"
-
-    - name: Enable grimd service
-      ansible.builtin.command: sysrc grimd_enable=YES
-      changed_when: true
-
-    - name: Start grimd service
-      ansible.builtin.service:
-        name: grimd
+        name: unbound_exporter
         state: restarted
         enabled: true
