@@ -51,7 +51,7 @@
 
     - name: Create Exporter rc.d script
       vars:
-        name: unbound_exporter
+        service_name: unbound_exporter
         binary_path: "{{ bin_path }}"
       ansible.builtin.template:
         src: router/unbound_exporter_rc.j2
@@ -59,10 +59,15 @@
         mode: "0755"
 
     - name: Allow Read Access to Keys
-      ansible.builtin.command: chmod 660 /var/unbound/unbound_control.key
+      ansible.builtin.file:
+        path: /var/unbound/unbound_control.key
+        mode: "0x660"
 
     - name: Add Root to Unbound Group
       ansible.builtin.command: pw group mod unbound -m root
+      register: command_result
+      changed_when: "'mem_added' in command_result.stdout"
+      failed_when: "command_result.rc != 0"
 
     - name: Enable Exporter service
       ansible.builtin.command: sysrc unbound_exporter_enable=YES
