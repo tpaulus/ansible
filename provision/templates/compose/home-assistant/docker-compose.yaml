@@ -41,7 +41,7 @@ services:
     image: "ghcr.io/home-assistant/home-assistant:stable"
     labels:
       - "traefik.enable=true"
-      - "traefik.http.routers.homeassistant.rule=Host(`home.whitestar.systems`)"
+      - "traefik.http.routers.homeassistant.rule=Host(`home.paulus.family`)"
       - "traefik.http.routers.homeassistant.entrypoints=web,websecure"
       - "traefik.http.services.homeassistant.loadbalancer.server.port=8123"
     volumes:
