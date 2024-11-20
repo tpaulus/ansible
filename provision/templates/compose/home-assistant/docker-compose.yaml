@@ -4,31 +4,13 @@ services:
     image: "traefik:v3.2"
     container_name: "traefik"
     command:
-      - "--providers.docker=true"
-      - "--providers.docker.exposedbydefault=false"
-      - "--entrypoints.web.address=:80"
-      - "--entrypoints.websecure.address=:443"
-      - "--entrypoints.websecure.asDefault=true"
-      - "--entrypoints.websecure.http.tls=true"
-      - "--entrypoints.websecure.http.tls.certResolver=cf_wss"
-      - "--entrypoints.traefik.address=:9000/tcp"
-      - "--entrypoints.web.http.redirections.entryPoint.to=websecure"
-      - "--entrypoints.web.http.redirections.entrypoint.priority=1"
-      - "--certificatesresolvers.cf_wss.acme.dnschallenge=true"
-      - "--certificatesresolvers.cf_wss.acme.dnschallenge.provider=cloudflare"
-      - "--certificatesresolvers.cf_wss.acme.email=admin@whiterstar.systems"
-      - "--certificatesresolvers.cf_wss.acme.storage=/letsencrypt/acme.json"
-      - "--api.dashboard=true"
-      - "--api.insecure=true"
-      - "--ping=true"
-      - "--metrics.prometheus=true"
-      - "--metrics.prometheus.entrypoint=traefik"
-
+      - "--configFile=/traefik.toml"
     network_mode: host
     environment:
       - CF_DNS_API_TOKEN={{ cf_token }}
 
     volumes:
+      - "/etc/docker-data/traefik.toml:/traefik.toml:ro"
       - "/etc/docker-data/letsencrypt:/letsencrypt"
       - "/var/run/docker.sock:/var/run/docker.sock:ro"
 

@@ -20,6 +20,12 @@
         - "/etc/docker-data/traefik"
         - "/etc/docker-data/home-assistant"
 
+    - name: Place Traefik Config File
+      ansible.builtin.template:
+        src: compose/home-assistant/traefik.toml
+        dest: "/etc/docker-data/traefik.toml"
+        mode: "0600"
+
     - name: Install Home Assistant External Dependencies
       ansible.builtin.apt:
         name:
