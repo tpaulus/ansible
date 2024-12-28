@@ -3,40 +3,47 @@
   hosts: tags_warp
   become: true
 
-  roles:
-    - role: docker
-      vars:
-        docker_config:
-          metrics-addr: "0.0.0.0:9323"
-
   tasks:
-    - name: Create and start Warp Tunnel
-      vars:
-        dir: /var/docker-compose-files/warp
-      block:
-        - name: Create Dir
-          ansible.builtin.file:
-            path: "{{ dir }}"
-            state: directory
-            recurse: true
-            mode: "0700"
-        - name: Place Compose File
-          ansible.builtin.template:
-            src: compose/warp/docker-compose.yaml
-            dest: "{{ dir }}/docker-compose.yaml"
-            mode: "0600"
+    - name: Create keyrings directory
+      ansible.builtin.file:
+        path: /usr/share/keyrings
+        state: directory
+        mode: '0755'
 
-        - name: Compose Up
-          ansible.builtin.command:
-            cmd: "docker compose up -d"
-            chdir: "{{ dir }}"
-          register: output
-          changed_when: '"Started" in output.stderr'
+    - name: Download Cloudflare GPG key
+      ansible.builtin.get_url:
+        url: https://pkg.cloudflare.com/cloudflare-main.gpg
+        dest: /usr/share/keyrings/cloudflare-main.gpg
+        mode: '0644'
+        use_proxy: false
 
-        - name: Show results
-          ansible.builtin.debug:
-            var: output
+    - name: Add Cloudflare repository to apt sources
+      ansible.builtin.lineinfile:
+        path: /etc/apt/sources.list.d/cloudflared.list
+        line: 'deb [signed-by=/usr/share/keyrings/cloudflare-main.gpg] https://pkg.cloudflare.com/cloudflared bookworm main'
+        create: true
+        mode: '0644'
 
-    - name: Show results
-      ansible.builtin.debug:
-        var: output
+    - name: Update apt package list
+      ansible.builtin.apt:
+        update_cache: true
+
+    - name: Install cloudflared
+      ansible.builtin.apt:
+        name: cloudflared
+        state: present
+
+    - name: Install Cloudflared service
+      ansible.builtin.command: "cloudflared service install {{ tunnel_token }}"
+      args:
+        creates: /etc/systemd/system/cloudflared.service
+
+    - name: Clean up the GPG key and repository file
+      ansible.builtin.file:
+        path: /usr/share/keyrings/cloudflare-main.gpg
+        state: absent
+
+    - name: Clean up the Cloudflare repository list file
+      ansible.builtin.file:
+        path: /etc/apt/sources.list.d/cloudflared.list
+        state: absent
