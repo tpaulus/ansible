@@ -15,7 +15,6 @@
         url: https://pkg.cloudflare.com/cloudflare-main.gpg
         dest: /usr/share/keyrings/cloudflare-main.gpg
         mode: '0644'
-        use_proxy: false
 
     - name: Add Cloudflare repository to apt sources
       ansible.builtin.lineinfile:
