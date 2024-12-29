@@ -4,16 +4,7 @@
 
 set -e
 
-# Setup
-mount_dir=$(mktemp -d)
-sudo mount -t nfs {{ backup_server }}:{{ backup_path }} ${mount_dir}
-
-# Backup the data
-rsync -rlt --partial --delete {{ backup_source }}/* "${mount_dir}"
-
-# Clean Up
-umount "${mount_dir}"
-rmdir "${mount_dir}"
+ha backup new --name $(date --rfc-3339=second)
 
 # Update Backup Timestamp Metric
 echo home_assistant_backup_completed $(date +%s) > /var/lib/node_exporter/home_assistant_backup.prom.$$

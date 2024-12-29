@@ -1,63 +1,98 @@
 ---
-- name: Deploy Home Assistant
+- name: Install Home Assistant Supervised
   hosts: tags_home_assistant
   become: true
 
+  vars:
+    ha_supervised_url: "https://github.com/home-assistant/supervised-installer/releases/latest/download/homeassistant-supervised.deb"
+    required_packages:
+      - software-properties-common
+      - apparmor
+      - jq
+      - curl
+      - dbus
+      - systemd-journal-remote
+
   roles:
     - role: docker
-      vars:
-        docker_config:
-          metrics-addr: "0.0.0.0:9323"
+    - role: cadvisor
 
   tasks:
-    - name: Create Data Dirs
-      ansible.builtin.file:
-        path: "{{ item }}"
-        state: directory
-        recurse: true
-        mode: '0755'
-      loop:
-        - "/etc/docker-data/traefik"
-        - "/etc/docker-data/home-assistant"
-
-    - name: Place Traefik Config File
-      ansible.builtin.template:
-        src: compose/home-assistant/traefik.toml
-        dest: "/etc/docker-data/traefik.toml"
-        mode: "0600"
-
-    - name: Install Home Assistant External Dependencies
+    - name: Update APT Cache
       ansible.builtin.apt:
-        name:
-          - bluez
+        update_cache: true
+
+    - name: Install required dependencies
+      ansible.builtin.apt:
+        name: "{{ required_packages }}"
         state: present
 
-    - name: Create and start Home Assistant
-      vars:
-        dir: /var/docker-compose-files/home-assistant
+    - name: OS-Agent
       block:
-        - name: Create Dir
-          ansible.builtin.file:
-            path: "{{ dir }}"
-            state: directory
-            recurse: true
-            mode: "0700"
-        - name: Place Compose File
-          ansible.builtin.template:
-            src: compose/home-assistant/docker-compose.yaml
-            dest: "{{ dir }}/docker-compose.yaml"
-            mode: "0600"
+        - name: Fetch latest release from GitHub
+          ansible.builtin.uri:
+            url: "https://api.github.com/repos/home-assistant/os-agent/releases/latest"
+            method: GET
+            return_content: true
+            headers:
+              Accept: "application/vnd.github.v3+json"
+          register: release_info
 
-        - name: Compose Up
-          ansible.builtin.command:
-            cmd: "docker compose up -d"
-            chdir: "{{ dir }}"
-          register: output
-          changed_when: '"Started" in output.stderr'
+        - name: Set the URL of the latest .deb file
+          ansible.builtin.set_fact:
+            os_agent_release_url: |
+              {{ release_info.json.assets | selectattr('name', 'search', 'os-agent.*linux_x86_64.deb') | map(attribute='browser_download_url') | first }}
 
-        - name: Show results
+        - name: Download OS-Agent installer
+          ansible.builtin.get_url:
+            url: "{{ os_agent_release_url }}"
+            dest: /tmp/os-agent.deb
+            mode: '0644'
+
+        - name: Install OS-Agent
+          ansible.builtin.apt:
+            deb: /tmp/os-agent.deb
+
+        - name: Install libglib2.0-bin package
+          ansible.builtin.package:
+            name: libglib2.0-bin
+            state: present
+
+        - name: Test OS Agent installation using gdbus introspect
+          ansible.builtin.shell: |
+            gdbus introspect --system --dest io.hass.os --object-path /io/hass/os
+          register: gdbus_test_output
+          failed_when: gdbus_test_output.rc != 0
+          ignore_errors: false
+          changed_when: false
+
+        - name: Check if OS Agent test was successful
           ansible.builtin.debug:
-            var: output
+            msg: "OS Agent is working as expected!"
+          when: gdbus_test_output.rc == 0
+
+        - name: Handle failure if OS Agent test fails
+          ansible.builtin.debug:
+            msg: "OS Agent is not working as expected. Error: {{ gdbus_test_output.stderr }}"
+          when: gdbus_test_output.rc != 0
+
+    - name: Download Home Assistant Supervised installer
+      ansible.builtin.get_url:
+        url: "{{ ha_supervised_url }}"
+        dest: /tmp/homeassistant-supervised.deb
+        mode: '0644'
+
+    - name: Install Home Assistant Supervised
+      ansible.builtin.apt:
+        deb: /tmp/homeassistant-supervised.deb
+
+    - name: Clean up downloaded files
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - /tmp/homeassistant-supervised.deb
+        - /tmp/os-agent.deb
 
 - name: Configure Home Assistant Backups
   hosts: tags_home_assistant
@@ -81,7 +116,6 @@
       vars:
         backup_server: woodlandpark.brickyard.whitestar.systems
         backup_path: /mnt/tank/Server\ Backups/HomeAssistant/
-        backup_source: /etc/docker-data/home-assistant
 
       ansible.builtin.template:
         src: home-assistant/backup_ha.sh.j2

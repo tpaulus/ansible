@@ -1,0 +1,54 @@
+- name: Ensure dependencies are installed
+  ansible.builtin.package:
+    name: curl
+    state: present
+
+- name: Fetch latest release from GitHub
+  ansible.builtin.uri:
+    url: "https://api.github.com/repos/google/cadvisor/releases/latest"
+    method: GET
+    return_content: true
+    headers:
+      Accept: "application/vnd.github.v3+json"
+  register: release_info
+
+- name: Set the URL of the latest binary
+  ansible.builtin.set_fact:
+    cadvisor_release_url: |
+      {{ release_info.json.assets | selectattr('name', 'search', 'cadvisor-.*-linux-amd64') | map(attribute='browser_download_url') | first }}
+
+
+- name: Download cAdvisor binary
+  ansible.builtin.get_url:
+    url: "{{ cadvisor_release_url }}"
+    dest: "{{ cadvisor_bin_path }}"
+    mode: "0755"
+
+- name: Create cAdvisor systemd service file
+  ansible.builtin.copy:
+    dest: "/etc/systemd/system/{{ cadvisor_service_name }}.service"
+    content: |
+      [Unit]
+      Description=cAdvisor
+      Documentation=https://github.com/google/cadvisor
+      After=network.target
+
+      [Service]
+      ExecStart={{ cadvisor_bin_path }} \
+        --store_container_labels=false \
+        --docker_only=true \
+        --disable_root_cgroup_stats=true
+      Restart=always
+      RestartSec=5s
+      LimitNOFILE=65536
+
+      [Install]
+      WantedBy=multi-user.target
+  notify:
+    - Reload systemd
+
+- name: Start and enable cAdvisor service
+  ansible.builtin.systemd:
+    name: "{{ cadvisor_service_name }}"
+    state: started
+    enabled: true
