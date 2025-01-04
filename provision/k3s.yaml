@@ -11,6 +11,7 @@
       disable:
         - servicelb
         - traefik
+      tls-san: k3s.brickyard.whitestar.systems
 
   roles:
     - role: xanmanning.k3s

@@ -11,6 +11,18 @@ sudo mount -t nfs {{ backup_server }}:{{ backup_share_path|replace(" ", "\ ") }}
 # Backup the data
 rsync -rlt --partial --delete {{ backup_source }}/* "${mount_dir}{{backup_path_prefix}}"
 
+# Remove backups older than 14 days
+current_time=$(date +%s)
+find "${mount_dir}{{backup_path_prefix}}" -type f -name 'etcd-snapshot-*' | while read -r file; do
+    # Extract the timestamp from the file name
+    timestamp=$(basename "$file" | sed -E 's/etcd-snapshot-[^-]+-([0-9]+)/\1/')
+    # Calculate the age of the backup
+    if (( current_time - timestamp > 14 * 24 * 60 * 60 )); then
+        echo "Deleting file due to age: $file"
+        rm -f "$file"
+    fi
+done
+
 # Clean Up
 umount "${mount_dir}"
 rmdir "${mount_dir}"
