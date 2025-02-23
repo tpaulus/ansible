@@ -17,6 +17,12 @@
     - role: xanmanning.k3s
 
   tasks:
+    - name: Configure Docker Credentials
+      ansible.builtin.template:
+        src: k3s/registries.yaml.j2
+        dest: "/etc/rancher/k3s/registries.yaml"
+        mode: "0600"
+
     - name: Install Longhorn Dependencies
       ansible.builtin.apt:
         name:
@@ -24,7 +30,6 @@
           - nfs-common
         state: present
         update_cache: true
-
 
 - name: Configure etcd Backups
   hosts: tags_k3s
@@ -78,12 +83,10 @@
 
 - name: Allow Access to Share
   hosts: device_roles_storage
-  environment:
-    middleware_method: client
   vars:
     allowed_host_ips: "{{ groups['tags_k3s'] | map('extract', hostvars, 'ansible_host') | list | sort }}"
   tasks:
-    - name: Update Home Assistant Backup Share  # noqa: args[module]
+    - name: Update K3s etcd Snapshot Backup Share  # noqa: args[module]
       arensb.truenas.sharing_nfs:
         name: "Server Backups - K3s etcd"
         path: "/mnt/tank/Server\ Backups/k3s-etcd"

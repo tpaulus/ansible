@@ -22,74 +22,35 @@ reserved for the Vault Passphrase) are copied as enviroment variables.
 
 ```fish
 
-function ansible-macos-hacks
-    # https://docs.ansible.com/ansible/latest/reference_appendices/faq.html#running-on-macos-as-a-control-node
-    set -x OBJC_DISABLE_INITIALIZE_FORK_SAFETY YES
-
-    # https://github.com/prometheus-community/ansible/issues/165
-    set -x no_proxy "*"
-end
-
 function ansible-playbook
     ansible-macos-hacks
 
-    set temp_file (mktemp)
-    echo "Obtaining Vault Password for 1Password"
-    set vault_data (op item get "Ansible" --vault="Infra" --fields type=concealed --format json)
-    echo $vault_data | jq -r '.[] | select(.id == "password") | .value'  $vault_password > $temp_file
+    # Set EnvVars for Ansible
+    set -x NETBOX_TOKEN $(op read "op://Infra/Ansible/NETBOX_TOKEN")
     
-    # Set additional fields as environment variables
-    set -l IFS '\n'
-    for field in (echo $vault_data | jq -r '.[] | select(.id != "password") | .label + "=" + .value')
-        set -x (string split '=' $field)
-    end
-    
-    command ansible-playbook $argv --vault-password-file $temp_file 
-    
-    # Clean up temp file
-    rm $temp_file
+    command ansible-playbook $argv --vault-id "op://Infra/Ansible/password@vault-1p-client.sh"
     
     # Clean up environment variables
-    for field in (echo $vault_data | jq -r '.[] | select(.id != "password") | .label')
-        set -e $field
-    end
+    set -e NETBOX_TOKEN
 end
 
 
 function ansible-vault
     ansible-macos-hacks
 
-    set temp_file (mktemp)
-    echo "Obtaining Vault Password for 1Password"
-    set vault_password (op item get "Ansible" --vault="Infra" --fields=password)
-    echo $vault_password > $temp_file
-    command ansible-vault $argv --vault-password-file $temp_file
-    rm $temp_file
+    command ansible-vault $argv --vault-id "op://Infra/Ansible/password@vault-1p-client.sh"
 end
 
 function ansible-inventory
     ansible-macos-hacks
 
-    set temp_file (mktemp)
-    echo "Obtaining Vault Password for 1Password"
-    set vault_data (op item get "Ansible" --vault="Infra" --fields type=concealed --format json)
-    echo $vault_data | jq -r '.[] | select(.id == "password") | .value'  $vault_password > $temp_file
+    # Set EnvVars for Ansible
+    set -x NETBOX_TOKEN $(op read "op://Infra/Ansible/NETBOX_TOKEN")
     
-    # Set additional fields as environment variables
-    set -l IFS '\n'
-    for field in (echo $vault_data | jq -r '.[] | select(.id != "password") | .label + "=" + .value')
-        set -x (string split '=' $field)
-    end
-    
-    command ansible-inventory $argv --vault-password-file $temp_file
-    
-    # Clean up temp file
-    rm $temp_file
+    command ansible-inventory $argv --vault-id "op://Infra/Ansible/password@vault-1p-client.sh"
     
     # Clean up environment variables
-    for field in (echo $vault_data | jq -r '.[] | select(.id != "password") | .label')
-        set -e $field
-    end
+    set -e NETBOX_TOKEN
 end
 
 ```

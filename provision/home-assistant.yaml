@@ -106,3 +106,44 @@
         name: "Server Backups - Home Assistant"
         path: "/mnt/tank/Server\ Backups/HomeAssistant"
         hosts: "{{ allowed_host_ips }}"
+
+
+- name: Configure Docker Registry Credentials
+  hosts: tags_home_assistant
+  become: true
+
+  vars:
+    docker_username: "{{ docker_user }}"
+    docker_pat: "{{ docker_token }}"
+    registry_url: "docker.io"
+
+  tasks:
+    - name: Ensure docker is installed
+      ansible.builtin.package:
+        name: docker
+        state: present
+
+    - name: Create docker config directory
+      ansible.builtin.file:
+        path: /root/.docker
+        state: directory
+        mode: '0700'
+
+    - name: Configure Docker authentication
+      ansible.builtin.copy:
+        content: |
+          {
+            "auths": {
+              "{{ registry_url }}": {
+                "auth": "{{ (docker_username + ':' + docker_pat) | b64encode }}"
+              }
+            }
+          }
+        dest: /root/.docker/config.json
+        mode: '0600'
+      no_log: true
+
+    - name: Restart Docker service
+      ansible.builtin.service:
+        name: docker
+        state: restarted

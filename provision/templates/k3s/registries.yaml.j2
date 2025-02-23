@@ -1,0 +1,7 @@
+{{ ansible_managed | comment }}
+
+configs:
+  "docker.io":
+    auth:
+      username: '{{ docker_user }}'
+      password: '{{ docker_token }}'
