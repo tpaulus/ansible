@@ -1,3 +1,5 @@
+{{ ansible_managed | comment }}
+
 Unattended-Upgrade::Allowed-Origins {
     "${distro_id}:${distro_codename}";
     "${distro_id}:${distro_codename}-security";
@@ -6,5 +8,27 @@ Unattended-Upgrade::Allowed-Origins {
     "${distro_id}:${distro_codename}-updates";
 };
 
-Unattended-Upgrade::Automatic-Reboot "true";
-Unattended-Upgrade::Automatic-Reboot-Time "{{ 4 | random(start=1, seed=inventory_hostname)}}:{{ 60 | random(seed=inventory_hostname) }}";
+// Enable kernel updates
+Unattended-Upgrade::Package-Whitelist {
+    "linux-generic";
+    "linux-headers-generic";
+    "linux-image-generic";
+};
+
+// Automatically remove unused kernel packages
+Unattended-Upgrade::Remove-Unused-Kernel-Packages "true";
+
+// Automatically remove unused dependencies
+Unattended-Upgrade::Remove-Unused-Dependencies "true";
+
+// Keep 1 previous kernel version as a backup
+Unattended-Upgrade::Keep-Kernels 1;
+
+// Enable automatic reboots after updates when needed
+// However, we do not do this for K3s nodes, as Kured
+// Reboots those nodes
+Unattended-Upgrade::Automatic-Reboot "{{ "k3s" not in tags }}";
+
+// Added safety measures
+Unattended-Upgrade::MinimalSteps "true";
+Unattended-Upgrade::InstallOnShutdown "false";
