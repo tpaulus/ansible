@@ -13,6 +13,10 @@
         - traefik
       tls-san: k3s.brickyard.whitestar.systems
 
+      kubelet-arg:
+        - "image-gc-high-threshold=10"
+        - "image-gc-low-threshold=5"
+
   roles:
     - role: xanmanning.k3s
 
