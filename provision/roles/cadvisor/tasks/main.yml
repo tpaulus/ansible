@@ -10,12 +10,12 @@
     return_content: true
     headers:
       Accept: "application/vnd.github.v3+json"
-  register: release_info
+  register: cadvisor_release_info
 
 - name: Set the URL of the latest binary
   ansible.builtin.set_fact:
     cadvisor_release_url: |
-      {{ release_info.json.assets | selectattr('name', 'search', 'cadvisor-.*-linux-amd64') | map(attribute='browser_download_url') | first }}
+      {{ cadvisor_release_info.json.assets | selectattr('name', 'search', 'cadvisor-.*-linux-amd64') | map(attribute='browser_download_url') | first }}
 
 
 - name: Download cAdvisor binary
