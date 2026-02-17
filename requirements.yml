@@ -7,7 +7,7 @@ collections:
   - name: ansible.utils
     version: 6.0.1
   - name: arensb.truenas
-    version: 1.14.3
+    version: 1.14.4
   - name: netbox.netbox
     version: 3.22.0
   - name: prometheus.prometheus
