@@ -11,6 +11,10 @@ export B2_ACCOUNT_KEY="{{ b2_account_key }}"
 BUCKET_NAME="{{ b2_bucket_name }}"
 SHARES_TO_BACKUP="{{ shares | join(' ') }}"  # Separate by Spaces
 
+# Retry configuration
+MAX_RETRIES=3
+RETRY_DELAY=30
+
 # Install (or update) Restic
 if [ ! -f "$RESTIC" ]; then
     curl -s https://api.github.com/repos/restic/restic/releases/latest \
@@ -27,42 +31,122 @@ else
     $RESTIC self-update
 fi
 
+# Function to initialize repository with retry logic
+init_repo() {
+    local bucket=$1
+    local share=$2
+    local retry=0
+
+    while [ $retry -lt $MAX_RETRIES ]; do
+        echo "Initializing repo for $share (attempt $((retry + 1))/$MAX_RETRIES)"
+        
+        # Try to unlock first in case of stale locks
+        $RESTIC unlock -r "b2:${bucket}:${share}" 2>/dev/null || true
+        
+        if $RESTIC -r "b2:${bucket}:${share}" init 2>&1; then
+            echo "Successfully initialized repo for $share"
+            return 0
+        else
+            local init_output=$($RESTIC -r "b2:${bucket}:${share}" init 2>&1)
+            if echo "$init_output" | grep -q "already initialized"; then
+                echo "Repo for $share already initialized"
+                return 0
+            fi
+            retry=$((retry + 1))
+            if [ $retry -lt $MAX_RETRIES ]; then
+                echo "Failed to initialize repo for $share, retrying in ${RETRY_DELAY}s..."
+                sleep $RETRY_DELAY
+            fi
+        fi
+    done
+
+    echo "Failed to initialize repo for $share after $MAX_RETRIES attempts"
+    return 1
+}
+
+# Function to perform backup with retry logic
+backup_share() {
+    local bucket=$1
+    local share=$2
+    local retry=0
+    local backup_success=false
+
+    while [ $retry -lt $MAX_RETRIES ]; do
+        echo "Backing up ${share} (attempt $((retry + 1))/$MAX_RETRIES)"
+
+        # Set a timeout duration (e.g., 2 hours)
+        TIMEOUT_DURATION="7200"
+        (
+            # Use a subshell to enforce timeout
+            timeout $TIMEOUT_DURATION $RESTIC backup \
+                --cleanup-cache \
+                -r "b2:${bucket}:${share}" \
+                "/mnt/tank/${share}"
+        )
+
+        local backup_exit_code=$?
+
+        if [ $backup_exit_code -eq 0 ]; then
+            echo "Successfully backed up ${share}"
+            echo "b2_backup_completed{share=\"${share}\", bucket_name=\"${bucket}\"}" $(date +%s) >> /var/lib/node_exporter/b2_backup.prom.$$
+            backup_success=true
+            break
+        elif [ $backup_exit_code -eq 124 ]; then
+            echo "Backup for ${share} exceeded timeout, unlocking repository."
+            $RESTIC unlock -r "b2:${bucket}:${share}" 2>/dev/null || true
+        else
+            echo "Backup for ${share} failed with exit code $backup_exit_code"
+            # Attempt to unlock in case of partial lock
+            $RESTIC unlock -r "b2:${bucket}:${share}" 2>/dev/null || true
+        fi
+
+        retry=$((retry + 1))
+        if [ $retry -lt $MAX_RETRIES ] && [ "$backup_success" = false ]; then
+            echo "Retrying backup for ${share} in ${RETRY_DELAY}s..."
+            sleep $RETRY_DELAY
+        fi
+    done
+
+    if [ "$backup_success" = true ]; then
+        return 0
+    else
+        echo "Failed to backup ${share} after $MAX_RETRIES attempts"
+        return 1
+    fi
+}
+
 for share in $SHARES_TO_BACKUP
 do
-echo "Backing up ${share}"
+    echo "Processing share: ${share}"
 
     # If not initialized
     if ! $RESTIC -r "b2:${BUCKET_NAME}:${share}" snapshots 2>&1 > /dev/null; then
         echo "Repo for $share not initialized"
-        $RESTIC -r "b2:${BUCKET_NAME}:${share}" init
+        if ! init_repo "$BUCKET_NAME" "$share"; then
+            echo "Skipping ${share} due to initialization failure"
+            continue
+        fi
     fi
 
-    # Set a timeout duration (e.g., 2 hours)
-    TIMEOUT_DURATION="7200"
-    (
-        # Use a subshell to enforce timeout
-        timeout $TIMEOUT_DURATION $RESTIC backup \
-            --cleanup-cache \
+    # Backup with retry
+    if backup_share "$BUCKET_NAME" "$share"; then
+        echo "Finished backing up ${share}. Starting cleanup."
+        
+        # Run cleanup
+        if $RESTIC forget \
             -r "b2:${BUCKET_NAME}:${share}" \
-            "/mnt/tank/${share}"
-
-        if [ $? -eq 0 ]; then
-            echo "b2_backup_completed{share=\"${share}\", bucket_name=\"${BUCKET_NAME}\"}" $(date +%s) >> /var/lib/node_exporter/b2_backup.prom.$$
+            --keep-daily 7 \
+            --keep-weekly 5 \
+            --keep-monthly 7 \
+            --prune; then
+            echo "b2_cleanup_completed{share=\"${share}\", bucket_name=\"${BUCKET_NAME}\"}" $(date +%s) >> /var/lib/node_exporter/b2_backup.prom.$$
+            echo "Cleanup finished for $share"
         else
-            echo "Backup for ${share} exceeded timeout, unlocking repository."
-            $RESTIC unlock -r "b2:${BUCKET_NAME}:${share}"
+            echo "Cleanup failed for $share, but backup was successful"
         fi
-    )
-
-    echo "Finished backing up ${share}. Starting cleanup."
-    $RESTIC forget \
-        -r "b2:${BUCKET_NAME}:${share}" \
-        --keep-daily 7 \
-        --keep-weekly 5 \
-        --keep-monthly 7 \
-        --prune
-    echo "b2_cleanup_completed{share=\"${share}\", bucket_name=\"${BUCKET_NAME}\"}" $(date +%s) >> /var/lib/node_exporter/b2_backup.prom.$$
-    echo "Cleanup finished for $share"
+    else
+        echo "Skipping cleanup for ${share} due to backup failure"
+    fi
 
 done
 
