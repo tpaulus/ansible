@@ -17,6 +17,8 @@ BASE_RETRY_DELAY="${BASE_RETRY_DELAY:-30}"
 MAX_RETRY_DELAY="${MAX_RETRY_DELAY:-300}"
 BACKUP_TIMEOUT_SECONDS="${BACKUP_TIMEOUT_SECONDS:-7200}"
 INIT_TIMEOUT_SECONDS="${INIT_TIMEOUT_SECONDS:-600}"
+BACKUP_KILL_AFTER="${BACKUP_KILL_AFTER:-5m}"
+INIT_KILL_AFTER="${INIT_KILL_AFTER:-30s}"
 LOCK_RETRY_DURATION="${LOCK_RETRY_DURATION:-5m}"
 STUCK_REQUEST_TIMEOUT="${STUCK_REQUEST_TIMEOUT:-5m}"
 
@@ -24,7 +26,7 @@ calculate_retry_delay() {
     local retry=$1
     local delay=$((BASE_RETRY_DELAY * (2 ** (retry - 1))))
 
-    if [ $delay -gt $MAX_RETRY_DELAY ]; then
+    if [ "$delay" -gt "$MAX_RETRY_DELAY" ]; then
         delay=$MAX_RETRY_DELAY
     fi
 
@@ -61,7 +63,7 @@ init_repo() {
         # Try to unlock first in case of stale locks
         $RESTIC --retry-lock "$LOCK_RETRY_DURATION" --stuck-request-timeout "$STUCK_REQUEST_TIMEOUT" unlock -r "b2:${bucket}:${share}" 2>/dev/null || true
         
-        init_output=$(timeout --kill-after=30s "$INIT_TIMEOUT_SECONDS" \
+        init_output=$(timeout --kill-after="$INIT_KILL_AFTER" "$INIT_TIMEOUT_SECONDS" \
             "$RESTIC" --retry-lock "$LOCK_RETRY_DURATION" --stuck-request-timeout "$STUCK_REQUEST_TIMEOUT" \
             -r "b2:${bucket}:${share}" init 2>&1)
         init_exit_code=$?
@@ -101,7 +103,7 @@ backup_share() {
 
     while [ $retry -lt $MAX_RETRIES ]; do
         echo "Backing up ${share} (attempt $((retry + 1))/$MAX_RETRIES)"
-        timeout --kill-after=5m "$BACKUP_TIMEOUT_SECONDS" "$RESTIC" \
+        timeout --kill-after="$BACKUP_KILL_AFTER" "$BACKUP_TIMEOUT_SECONDS" "$RESTIC" \
             --retry-lock "$LOCK_RETRY_DURATION" --stuck-request-timeout "$STUCK_REQUEST_TIMEOUT" \
             backup \
             --cleanup-cache \
