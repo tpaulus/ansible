@@ -5,12 +5,24 @@
 set -e
 
 MARKER_FILE="/etc/k3s-drained"
+NODE_NAME="$(hostname)"
+RETRY_COUNT=60
+RETRY_INTERVAL=10
 
 echo "Uncordoning the Kubernetes node..."
 
-# Add the command to uncordon the node
-kubectl uncordon $(hostname)
-    
+for attempt in $(seq 1 "$RETRY_COUNT"); do
+    if kubectl get node "$NODE_NAME" >/dev/null 2>&1; then
+        kubectl uncordon "$NODE_NAME"
+        break
+    fi
+
+    echo "Waiting for Kubernetes API to become available (${attempt}/${RETRY_COUNT})..."
+    sleep "$RETRY_INTERVAL"
+done
+
+kubectl get node "$NODE_NAME" >/dev/null
+
 if [ -e "$MARKER_FILE" ]; then
     echo "Deleting the marker file..."
     rm -f "$MARKER_FILE"
