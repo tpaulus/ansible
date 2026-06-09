@@ -5,7 +5,5 @@
   ansible.builtin.import_playbook: common.yaml
 - name: TrueNAS
   ansible.builtin.import_playbook: truenas.yaml
-- name: Home Assistant
-  ansible.builtin.import_playbook: home-assistant.yaml
-- name: Warp
-  ansible.builtin.import_playbook: warp.yaml
+- name: K3s
+  ansible.builtin.import_playbook: k3s.yaml
