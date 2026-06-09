@@ -1,0 +1,44 @@
+---
+- hosts: all
+  become: true
+  become_user: root
+  tasks:
+    - name: Get distribution version
+      setup:
+        filter: ansible_distribution*
+    - name: Skip if not Debian 12
+      meta: end_host
+      when: ansible_distribution != 'Debian' or ansible_distribution_major_version != '12'
+    - name: apt clean
+      apt:
+        clean: yes
+      become: yes
+    - name: Get filesystem facts
+      setup:
+        filter: ansible_mounts
+    - name: Fail if free space on / is below 5 GiB
+      ansible.builtin.assert:
+        that:
+          - item.size_available > (5 * 1024 * 1024 * 1024)
+        fail_msg: "Free disk space on {{ item.mount }} is below 5 GiB"
+      loop: "{{ ansible_mounts }}"
+      when: item.mount == "/"
+    - name: All apt packages up to date
+      apt:
+        upgrade: dist
+        update_cache: yes
+      become: yes
+    - name: apt autoremove
+      apt:
+        autoremove: yes
+      become: yes
+    - name: apt clean
+      apt:
+        clean: yes
+      become: yes
+    - name: Check if reboot required
+      ansible.builtin.stat:
+        path: /run/reboot-required
+        get_checksum: no
+      register: reboot_required_file
+

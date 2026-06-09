@@ -1,0 +1,56 @@
+---
+- hosts: all
+  become: true
+  become_user: root
+  tasks:
+    - name: Check if reboot required
+      ansible.builtin.stat:
+        path: /run/reboot-required
+        get_checksum: no
+      register: reboot_required_file
+    - name: Abort if Reboot Required
+      meta: end_host
+      when: reboot_required_file.stat.exists
+    - name: Switch OS from bookworm to trixie
+      ansible.builtin.replace:
+        path: /etc/apt/sources.list
+        regexp: 'bookworm'
+        replace: 'trixie'
+      become: yes
+    - name: Find all 3rd-party repos
+      ansible.builtin.find:
+        paths: /etc/apt/sources.list.d
+        patterns: '*'
+        recurse: no
+      register: third_party_repos
+    - name: Switch 3rd-party repos from bookworm to trixie
+      ansible.builtin.replace:
+        path: "{{ item.path }}"
+        regexp: 'bookworm'
+        replace: 'trixie'
+      loop: "{{ third_party_repos.files }}"
+      loop_control:
+        label: "{{ item.path }}"
+      become: yes
+    - name: Use apt to move to trixie
+      apt:
+        upgrade: dist
+        update_cache: yes
+      become: yes
+    - name: Get distribution version
+      setup:
+        filter: ansible_distribution*
+    - name: Fail if not Debian 13
+      assert:
+        that:
+          - ansible_distribution_major_version == '13'
+        fail_msg: "Upgrade to Debian 13 failed"
+    - name: Require Reboot
+      ansible.builtin.file:
+        path: /run/reboot-required
+        state: touch
+        mode: u=rw,g=r,o=r
+    - name: apt autoremove
+      apt:
+        autoremove: yes
+      become: yes
