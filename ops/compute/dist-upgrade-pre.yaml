@@ -1,44 +1,44 @@
 ---
-- hosts: all
+- name: Prepare Debian dist upgrade
+  hosts: all
   become: true
   become_user: root
   tasks:
     - name: Get distribution version
-      setup:
+      ansible.builtin.setup:
         filter: ansible_distribution*
     - name: Skip if not Debian 12
-      meta: end_host
-      when: ansible_distribution != 'Debian' or ansible_distribution_major_version != '12'
-    - name: apt clean
-      apt:
-        clean: yes
-      become: yes
+      ansible.builtin.meta: end_host
+      when: ansible_facts['distribution'] != 'Debian' or ansible_facts['distribution_major_version'] != '12'
+    - name: Apt clean
+      ansible.builtin.apt:
+        clean: true
+      become: true
     - name: Get filesystem facts
-      setup:
+      ansible.builtin.setup:
         filter: ansible_mounts
     - name: Fail if free space on / is below 5 GiB
       ansible.builtin.assert:
         that:
           - item.size_available > (5 * 1024 * 1024 * 1024)
         fail_msg: "Free disk space on {{ item.mount }} is below 5 GiB"
-      loop: "{{ ansible_mounts }}"
+      loop: "{{ ansible_facts['mounts'] }}"
       when: item.mount == "/"
     - name: All apt packages up to date
-      apt:
+      ansible.builtin.apt:
         upgrade: dist
-        update_cache: yes
-      become: yes
-    - name: apt autoremove
-      apt:
-        autoremove: yes
-      become: yes
-    - name: apt clean
-      apt:
-        clean: yes
-      become: yes
+        update_cache: true
+      become: true
+    - name: Apt autoremove
+      ansible.builtin.apt:
+        autoremove: true
+      become: true
+    - name: Apt clean
+      ansible.builtin.apt:
+        clean: true
+      become: true
     - name: Check if reboot required
       ansible.builtin.stat:
         path: /run/reboot-required
-        get_checksum: no
+        get_checksum: false
       register: reboot_required_file
-

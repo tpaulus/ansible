@@ -1,21 +1,23 @@
 ---
-- hosts: all
+- name: Finish Debian dist upgrade
+  hosts: all
   become: true
   become_user: root
   tasks:
     - name: Check if reboot required
       ansible.builtin.stat:
         path: /run/reboot-required
-        get_checksum: no
+        get_checksum: false
       register: reboot_required_file
     - name: Abort if Reboot Required
-      meta: end_host
+      ansible.builtin.meta: end_host
       when: reboot_required_file.stat.exists
-    - name: apt clean
-      apt:
-        clean: yes
-      become: yes
+    - name: Apt clean
+      ansible.builtin.apt:
+        clean: true
+      become: true
     - name: Modernize apt sources
       ansible.builtin.command:
         cmd: apt -y modernize-sources
-      become: yes
+      become: true
+      changed_when: true

@@ -16,12 +16,12 @@
       when: not confirm_decommission.user_input | lower == 'yes'
 
     - name: Cordoning the Node
-      ansible.builtin.command: "kubectl cordon {{ ansible_hostname }}"
+      ansible.builtin.command: "kubectl cordon {{ ansible_facts['hostname'] }}"
       failed_when: false
       changed_when: true
 
     - name: Draining the Node
-      ansible.builtin.command: "kubectl drain {{ ansible_hostname }} --ignore-daemonsets --delete-emptydir-data"
+      ansible.builtin.command: "kubectl drain {{ ansible_facts['hostname'] }} --ignore-daemonsets --delete-emptydir-data"
       failed_when: false
       changed_when: true
 
@@ -31,6 +31,6 @@
       changed_when: true
 
     - name: Delete the Node
-      ansible.builtin.command: "kubectl delete node {{ ansible_hostname }} --wait=false"
+      ansible.builtin.command: "kubectl delete node {{ ansible_facts['hostname'] }} --wait=false"
       failed_when: false
       changed_when: true
