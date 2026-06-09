@@ -4,16 +4,16 @@
 {%- set lgrey = "[0;37m" -%}
 {%- set lblue = "[1;34m" -%}
 
-{{ lgrey ~ "======" ~ reset }} Welcome to {{ bold ~ ansible_hostname ~ reset }} {{ lgrey ~ "======" ~ reset }}
+{{ lgrey ~ "======" ~ reset }} Welcome to {{ bold ~ ansible_facts["hostname"] ~ reset }} {{ lgrey ~ "======" ~ reset }}
 
 {# Keep this empty line #}
 {{ bold }}Last Ansible Run:{{reset}} {{ ansible_date_time.iso8601 }}
 {%- if ansible_lsb %}
 
-{{ bold }}Booted:{{reset}} {{ ansible_lsb['id'] }} {{ ansible_distribution_version }} ({{ ansible_lsb['codename'] }})
+{{ bold }}Booted:{{reset}} {{ ansible_lsb['id'] }} {{ ansible_facts["distribution_version"] }} ({{ ansible_lsb['codename'] }})
 {%- endif %}
 
-{{ bold }}Kernel:{{reset}} {{ ansible_kernel }} {{ ansible_kernel_version }}
+{{ bold }}Kernel:{{reset}} {{ ansible_facts["kernel"] }} {{ ansible_facts["kernel_version"] }}
 
 {% if device_roles %}
 {{ bold }}Role:{{ reset }} {{ device_roles[0] }}
