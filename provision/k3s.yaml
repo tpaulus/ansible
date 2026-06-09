@@ -56,7 +56,7 @@
       vars:
         backup_server: woodlandpark.brickyard.whitestar.systems
         backup_share_path: "/mnt/tank/Server\ Backups/k3s-etcd"
-        backup_path_prefix: "/{{ ansible_hostname }}"
+        backup_path_prefix: "/{{ ansible_facts['hostname'] }}"
         backup_source: /var/lib/rancher/k3s/server/db/snapshots
 
       ansible.builtin.template:

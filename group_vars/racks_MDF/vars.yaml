@@ -1,5 +1,5 @@
 ups_name: ups
-ups_host: "{{ ansible_default_ipv4['gateway'] }}"
+ups_host: "{{ ansible_facts['default_ipv4']['gateway'] }}"
 upsmon_ups_name: "{{ ups_name }}@{{ ups_host }}"
 
 ups_monuser: "{{ ups_monuser_vault }}"

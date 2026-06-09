@@ -7,10 +7,10 @@
 {{ lgrey ~ "======" ~ reset }} Welcome to {{ bold ~ ansible_facts["hostname"] ~ reset }} {{ lgrey ~ "======" ~ reset }}
 
 {# Keep this empty line #}
-{{ bold }}Last Ansible Run:{{reset}} {{ ansible_date_time.iso8601 }}
-{%- if ansible_lsb %}
+{{ bold }}Last Ansible Run:{{reset}} {{ ansible_facts["date_time"]["iso8601"] }}
+{%- if ansible_facts["lsb"] is defined %}
 
-{{ bold }}Booted:{{reset}} {{ ansible_lsb['id'] }} {{ ansible_facts["distribution_version"] }} ({{ ansible_lsb['codename'] }})
+{{ bold }}Booted:{{reset}} {{ ansible_facts["lsb"]["id"] }} {{ ansible_facts["distribution_version"] }} ({{ ansible_facts["lsb"]["codename"] }})
 {%- endif %}
 
 {{ bold }}Kernel:{{reset}} {{ ansible_facts["kernel"] }} {{ ansible_facts["kernel_version"] }}
