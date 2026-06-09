@@ -125,6 +125,7 @@
 
     - name: Enable uncordon-node service
       ansible.builtin.systemd:
-        name: uncordon-node
+        name: uncordon-node.service
+        daemon_reload: true
         enabled: true
         state: started

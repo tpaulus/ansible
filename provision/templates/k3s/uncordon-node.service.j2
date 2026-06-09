@@ -6,7 +6,7 @@ After=k3s.service
 
 [Service]
 Type=simple
-ExecCondition="/usr/bin/ls /etc/k3s-drained"
+ExecCondition=/usr/bin/test -e /etc/k3s-drained
 ExecStart=/etc/systemd/scripts/uncordon-node.sh
 StandardOutput=syslog
 StandardError=syslog
