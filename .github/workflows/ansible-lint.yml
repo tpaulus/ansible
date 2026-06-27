@@ -3,4 +3,4 @@ on: [push, pull_request]
 
 jobs:
   ansible-lint:
-    uses: ansible/ansible-content-actions/.github/workflows/ansible_lint.yaml@main
+    uses: ansible/ansible-content-actions/.github/workflows/ansible_lint.yaml@24ca2b652f231d1cdd974d96c20944354aa4bff4 # main
