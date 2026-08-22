@@ -5,10 +5,11 @@
 RESTIC="/usr/bin/restic"
 
 export RESTIC_PASSWORD="{{ restic_password }}"
-export B2_ACCOUNT_ID="{{ b2_account_id }}"
-export B2_ACCOUNT_KEY="{{ b2_account_key }}"
+export AWS_ACCESS_KEY_ID="{{ b2_account_id }}"
+export AWS_SECRET_ACCESS_KEY="{{ b2_account_key }}"
 
 BUCKET_NAME="{{ b2_bucket_name }}"
+S3_ENDPOINT="{{ b2_s3_endpoint }}"
 SHARES_TO_BACKUP="{{ shares | join(' ') }}"  # Separate by Spaces
 
 # Retry configuration
@@ -59,13 +60,13 @@ init_repo() {
 
     while [ $retry -lt $MAX_RETRIES ]; do
         echo "Initializing repo for $share (attempt $((retry + 1))/$MAX_RETRIES)"
-        
+
         # Try to unlock first in case of stale locks
-        $RESTIC --retry-lock "$LOCK_RETRY_DURATION" --stuck-request-timeout "$STUCK_REQUEST_TIMEOUT" unlock -r "b2:${bucket}:${share}" 2>/dev/null || true
-        
+        $RESTIC --retry-lock "$LOCK_RETRY_DURATION" --stuck-request-timeout "$STUCK_REQUEST_TIMEOUT" unlock -r "s3:${S3_ENDPOINT}/${bucket}/${share}" 2>/dev/null || true
+
         init_output=$(timeout --kill-after="$INIT_KILL_AFTER" "$INIT_TIMEOUT_SECONDS" \
             "$RESTIC" --retry-lock "$LOCK_RETRY_DURATION" --stuck-request-timeout "$STUCK_REQUEST_TIMEOUT" \
-            -r "b2:${bucket}:${share}" init 2>&1)
+            -r "s3:${S3_ENDPOINT}/${bucket}/${share}" init 2>&1)
         init_exit_code=$?
 
         if [ $init_exit_code -eq 0 ]; then
@@ -73,7 +74,7 @@ init_repo() {
             return 0
         elif [ $init_exit_code -eq 124 ]; then
             echo "Repository initialization for $share exceeded timeout (${INIT_TIMEOUT_SECONDS}s), unlocking repository."
-            $RESTIC --retry-lock "$LOCK_RETRY_DURATION" --stuck-request-timeout "$STUCK_REQUEST_TIMEOUT" unlock -r "b2:${bucket}:${share}" 2>/dev/null || true
+            $RESTIC --retry-lock "$LOCK_RETRY_DURATION" --stuck-request-timeout "$STUCK_REQUEST_TIMEOUT" unlock -r "s3:${S3_ENDPOINT}/${bucket}/${share}" 2>/dev/null || true
         elif echo "$init_output" | grep -q "already initialized"; then
             echo "Repo for $share already initialized"
             return 0
@@ -107,7 +108,7 @@ backup_share() {
             --retry-lock "$LOCK_RETRY_DURATION" --stuck-request-timeout "$STUCK_REQUEST_TIMEOUT" \
             backup \
             --cleanup-cache \
-            -r "b2:${bucket}:${share}" \
+            -r "s3:${S3_ENDPOINT}/${bucket}/${share}" \
             "/mnt/tank/${share}"
 
         local backup_exit_code=$?
@@ -120,12 +121,12 @@ backup_share() {
         elif [ $backup_exit_code -eq 124 ]; then
             echo "Backup for ${share} exceeded timeout (${BACKUP_TIMEOUT_SECONDS}s), unlocking repository."
             echo "b2_backup_timeout{share=\"${share}\", bucket_name=\"${bucket}\"}" $(date +%s) >> /var/lib/node_exporter/b2_backup.prom.$$
-            $RESTIC --retry-lock "$LOCK_RETRY_DURATION" --stuck-request-timeout "$STUCK_REQUEST_TIMEOUT" unlock -r "b2:${bucket}:${share}" 2>/dev/null || true
+            $RESTIC --retry-lock "$LOCK_RETRY_DURATION" --stuck-request-timeout "$STUCK_REQUEST_TIMEOUT" unlock -r "s3:${S3_ENDPOINT}/${bucket}/${share}" 2>/dev/null || true
         else
             echo "Backup for ${share} failed with exit code $backup_exit_code"
             echo "b2_backup_failed{share=\"${share}\", bucket_name=\"${bucket}\", exit_code=\"${backup_exit_code}\"}" $(date +%s) >> /var/lib/node_exporter/b2_backup.prom.$$
             # Attempt to unlock in case of partial lock
-            $RESTIC --retry-lock "$LOCK_RETRY_DURATION" --stuck-request-timeout "$STUCK_REQUEST_TIMEOUT" unlock -r "b2:${bucket}:${share}" 2>/dev/null || true
+            $RESTIC --retry-lock "$LOCK_RETRY_DURATION" --stuck-request-timeout "$STUCK_REQUEST_TIMEOUT" unlock -r "s3:${S3_ENDPOINT}/${bucket}/${share}" 2>/dev/null || true
         fi
 
         retry=$((retry + 1))
@@ -150,7 +151,7 @@ do
     echo "Processing share: ${share}"
 
     # If not initialized
-    if ! $RESTIC --retry-lock "$LOCK_RETRY_DURATION" --stuck-request-timeout "$STUCK_REQUEST_TIMEOUT" -r "b2:${BUCKET_NAME}:${share}" snapshots > /dev/null 2>&1; then
+    if ! $RESTIC --retry-lock "$LOCK_RETRY_DURATION" --stuck-request-timeout "$STUCK_REQUEST_TIMEOUT" -r "s3:${S3_ENDPOINT}/${BUCKET_NAME}/${share}" snapshots > /dev/null 2>&1; then
         echo "Repo for $share not initialized"
         if ! init_repo "$BUCKET_NAME" "$share"; then
             echo "Skipping ${share} due to initialization failure"
@@ -161,10 +162,10 @@ do
     # Backup with retry
     if backup_share "$BUCKET_NAME" "$share"; then
         echo "Finished backing up ${share}. Starting cleanup."
-        
+
         # Run cleanup
         if $RESTIC --retry-lock "$LOCK_RETRY_DURATION" --stuck-request-timeout "$STUCK_REQUEST_TIMEOUT" forget \
-            -r "b2:${BUCKET_NAME}:${share}" \
+            -r "s3:${S3_ENDPOINT}/${BUCKET_NAME}/${share}" \
             --keep-daily 7 \
             --keep-weekly 5 \
             --keep-monthly 7 \
@@ -184,5 +185,5 @@ mv /var/lib/node_exporter/b2_backup.prom.$$ /var/lib/node_exporter/b2_backup.pro
 echo "Backup Completed"
 
 unset RESTIC_PASSWORD
-unset B2_ACCOUNT_ID
-unset B2_ACCOUNT_KEY
+unset AWS_ACCESS_KEY_ID
+unset AWS_SECRET_ACCESS_KEY

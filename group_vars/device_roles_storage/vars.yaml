@@ -2,4 +2,5 @@
 offsite_restic_password: "{{ vault_offsite_restic_password }}"
 b2_account_id: "{{ vault_b2_account_id }}"
 b2_account_key: "{{ vault_b2_account_key }}"
+b2_s3_endpoint: "{{ vault_b2_s3_endpoint }}"
 offsite_b2_bucket_name: "brickyard-woodlandpark-restic"

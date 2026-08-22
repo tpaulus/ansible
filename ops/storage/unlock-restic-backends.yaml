@@ -14,9 +14,9 @@
       loop: "{{ shares }}"
       ansible.builtin.command: "/usr/bin/restic unlock"
       environment: &restic_env
-        RESTIC_REPOSITORY: "b2:{{ offsite_b2_bucket_name }}:{{ item }}"
+        RESTIC_REPOSITORY: "s3:{{ b2_s3_endpoint }}/{{ offsite_b2_bucket_name }}/{{ item }}"
         RESTIC_PASSWORD: "{{ offsite_restic_password }}"
-        B2_ACCOUNT_ID: "{{ b2_account_id }}"
-        B2_ACCOUNT_KEY: "{{ b2_account_key }}"
+        AWS_ACCESS_KEY_ID: "{{ b2_account_id }}"
+        AWS_SECRET_ACCESS_KEY: "{{ b2_account_key }}"
       register: unlock
       changed_when: '"successfully removed" in unlock.stdout'
