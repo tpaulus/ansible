@@ -1,5 +1,6 @@
 ---
 exclude_paths:
+  - .ansible/collections
   - .github
   - group_vars/*/vault.yaml
   - host_vars/*/vault.yaml
