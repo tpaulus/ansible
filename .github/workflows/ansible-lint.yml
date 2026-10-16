@@ -5,8 +5,6 @@ permissions:
   contents: read
 
 jobs:
-  ansible-lint:
-    uses: ansible/ansible-content-actions/.github/workflows/ansible_lint.yaml@c105d6b8b887a36219224da17adc7518aab2401d # main
   validate:
     runs-on: ubuntu-24.04
     steps:
