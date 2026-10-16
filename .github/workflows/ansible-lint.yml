@@ -17,7 +17,9 @@ jobs:
       - name: Install validation tools
         run: python -m pip install -r requirements-dev.txt
       - name: Install Galaxy dependencies
-        run: ansible-galaxy install -r requirements.yml --roles-path .ansible/roles --force
+        run: |
+          ansible-galaxy role install -r requirements.yml --roles-path .ansible/roles --force
+          ansible-galaxy collection install -r requirements.yml --collections-path .ansible/collections
       - name: Lint Ansible content
         env:
           ANSIBLE_INVENTORY: inventories/ci/hosts.yml

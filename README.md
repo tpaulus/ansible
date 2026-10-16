@@ -33,7 +33,8 @@ Use Python 3.13 or newer and run commands from the repository root so
 python3 -m venv .venv
 . .venv/bin/activate
 python -m pip install -r requirements-dev.txt
-ansible-galaxy install -r requirements.yml --roles-path .ansible/roles --force
+ansible-galaxy role install -r requirements.yml --roles-path .ansible/roles --force
+ansible-galaxy collection install -r requirements.yml --collections-path .ansible/collections
 ```
 
 Production NetBox inventory additionally needs `pynetbox` and `pytz` installed in
