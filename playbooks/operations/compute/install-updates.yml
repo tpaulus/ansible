@@ -1,0 +1,74 @@
+---
+- name: Update and reboot compute systems
+  hosts: device_roles_compute
+  become: true
+  serial: 1
+  any_errors_fatal: true
+  tags: [maintenance, updates]
+  vars:
+    update_services: [consul, docker, weave, weave-expose, nomad]
+  tasks:
+    - name: Validate update targets
+      ansible.builtin.assert:
+        that:
+          - ansible_facts['os_family'] == 'Debian'
+          - ansible_limit | default('') | length > 0
+          - ansible_limit != 'all'
+        fail_msg: Updates require Debian-family compute hosts and an explicit --limit.
+
+    - name: Record service states before updating
+      ansible.builtin.service_facts:
+
+    - name: Record previously running services
+      ansible.builtin.set_fact:
+        update_active_services: >-
+          {{ ansible_facts['services'] | dict2items
+             | selectattr('value.state', 'equalto', 'running')
+             | map(attribute='key') | select('in', update_services | map('regex_replace', '$', '.service') | list)
+             | list }}
+
+    - name: Refresh APT cache
+      ansible.builtin.apt:
+        update_cache: true
+
+    - name: Preview packages requiring scheduler maintenance # noqa: command-instead-of-module
+      ansible.builtin.command:
+        argv: [apt-get, --simulate, dist-upgrade]
+      register: update_package_plan
+      environment:
+        LC_ALL: C
+      changed_when: false
+      check_mode: false
+
+    - name: Upgrade system with service restoration
+      block:
+        - name: Stop active scheduler
+          when:
+            - "'nomad.service' in update_active_services"
+            - update_package_plan.stdout_lines | select('match', '^Inst (docker-ce|nomad|consul)(:| )') | list | length > 0
+          ansible.builtin.systemd_service:
+            name: nomad
+            state: stopped
+
+        - name: Upgrade packages
+          ansible.builtin.apt:
+            upgrade: full
+            autoremove: true
+            autoclean: true
+
+        - name: Inspect reboot requirement
+          ansible.builtin.stat:
+            path: /run/reboot-required
+          register: update_reboot
+
+        - name: Reboot when required
+          when: update_reboot.stat.exists
+          ansible.builtin.reboot:
+            reboot_timeout: 300
+            msg: Reboot initiated by Ansible for package updates
+      always:
+        - name: Restore previously running services
+          ansible.builtin.systemd_service:
+            name: "{{ item }}"
+            state: started
+          loop: "{{ update_active_services }}"

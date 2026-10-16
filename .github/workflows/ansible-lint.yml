@@ -1,6 +1,30 @@
-name: ansible-lint
+name: Ansible validation
 on: [push, pull_request]
+
+permissions:
+  contents: read
 
 jobs:
   ansible-lint:
     uses: ansible/ansible-content-actions/.github/workflows/ansible_lint.yaml@c105d6b8b887a36219224da17adc7518aab2401d # main
+  validate:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+      - name: Set up Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: "3.13"
+      - name: Install validation tools
+        run: python -m pip install -r requirements-dev.txt
+      - name: Install Galaxy dependencies
+        run: ansible-galaxy install -r requirements.yml --roles-path .ansible/roles --force
+      - name: Lint Ansible content
+        env:
+          ANSIBLE_INVENTORY: inventories/ci/hosts.yml
+        run: ansible-lint --offline
+      - name: Check every playbook
+        run: bash scripts/check-syntax.sh
+      - name: Test changed behavior without infrastructure
+        run: python -m unittest discover -s tests -v

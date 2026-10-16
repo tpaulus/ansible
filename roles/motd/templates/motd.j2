@@ -1,0 +1,36 @@
+{%- set bold = "[1m" -%}
+{%- set uline = "[4m" -%}
+{%- set reset = "(B[m" -%}
+{%- set lgrey = "[0;37m" -%}
+{%- set lblue = "[1;34m" -%}
+
+{{ lgrey ~ "======" ~ reset }} Welcome to {{ bold ~ ansible_facts["hostname"] ~ reset }} {{ lgrey ~ "======" ~ reset }}
+
+{# Keep this empty line #}
+{%- if ansible_facts.get("lsb", {}).get("id") %}
+
+{{ bold }}Booted:{{reset}} {{ ansible_facts["lsb"]["id"] }} {{ ansible_facts["distribution_version"] }} ({{ ansible_facts["lsb"]["codename"] | default('') }})
+{%- endif %}
+
+{{ bold }}Kernel:{{reset}} {{ ansible_facts["kernel"] }} {{ ansible_facts["kernel_version"] }}
+
+{% if device_roles | default([]) %}
+{{ bold }}Role:{{ reset }} {{ device_roles[0] }}
+{% endif %}
+{% if tags | default([]) %}
+
+{{ bold }}Tags:{{ reset }}
+{{ tags | to_nice_yaml | trim() | indent(2, first=true) }}
+{% endif %}
+
+{% if motd_netbox_url -%}
+{{ bold }}Netbox:{{ reset }} {{ lblue ~ uline ~ motd_netbox_url ~ reset }}
+{% endif %}
+
+{{ bold }}IPs: {{ reset }}
+  - {{ primary_ip4 | default(ansible_host | default(inventory_hostname)) }} (Primary)
+{% if oob_ip is defined %}
+  - {{ oob_ip | replace('/32', '') }} (BMC)
+{% endif %}
+
+{# A comment to have an extra empty line at the end that is not removed by editors #}

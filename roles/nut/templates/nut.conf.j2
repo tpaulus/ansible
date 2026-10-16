@@ -1,0 +1,2 @@
+{{ ansible_managed | comment }}
+MODE={{ 'netserver' if nut_mode == 'primary' else 'netclient' }}

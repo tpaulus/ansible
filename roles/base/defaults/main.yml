@@ -1,0 +1,5 @@
+---
+base_timezone: UTC
+base_packages: [net-tools, git, htop, curl, jq, gpg]
+base_ntp_servers: time.cloudflare.com
+base_ntp_fallback: pool.ntp.org

@@ -1,0 +1,7 @@
+---
+- name: Apply common configuration
+  ansible.builtin.import_playbook: provision/common.yml
+- name: Configure storage
+  ansible.builtin.import_playbook: provision/storage.yml
+- name: Configure K3s
+  ansible.builtin.import_playbook: provision/k3s.yml

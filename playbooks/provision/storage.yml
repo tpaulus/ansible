@@ -1,0 +1,7 @@
+---
+- name: Configure offsite backups
+  hosts: device_roles_storage
+  become: true
+  tags: [storage, backups]
+  roles:
+    - role: truenas_backup

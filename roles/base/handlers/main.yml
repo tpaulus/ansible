@@ -1,0 +1,17 @@
+---
+- name: Restart cron
+  ansible.builtin.service:
+    name: cron
+    state: restarted
+
+- name: Restart chrony
+  ansible.builtin.service:
+    name: chrony
+    state: restarted
+    enabled: true
+
+- name: Restart timesyncd
+  ansible.builtin.service:
+    name: systemd-timesyncd
+    state: restarted
+    enabled: true

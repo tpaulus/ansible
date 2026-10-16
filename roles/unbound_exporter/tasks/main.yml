@@ -1,0 +1,56 @@
+---
+- name: Require FreeBSD
+  ansible.builtin.assert:
+    that:
+      - ansible_facts['os_family'] == 'FreeBSD'
+      - ansible_facts['architecture'] in unbound_exporter_architectures
+
+- name: Inspect exporter version marker
+  ansible.builtin.stat:
+    path: "{{ unbound_exporter_bin }}.version"
+  register: unbound_exporter_marker
+
+- name: Read exporter version marker
+  ansible.builtin.slurp:
+    src: "{{ unbound_exporter_bin }}.version"
+  when: unbound_exporter_marker.stat.exists
+  register: unbound_exporter_marker_content
+
+- name: Inspect installed exporter
+  ansible.builtin.stat:
+    path: "{{ unbound_exporter_bin }}"
+  register: unbound_exporter_binary
+
+- name: Build and install pinned exporter
+  when: >-
+    not unbound_exporter_binary.stat.exists or
+    (unbound_exporter_marker_content.content | default('') | b64decode | trim) != unbound_exporter_install_id
+  ansible.builtin.include_tasks: build.yml
+
+- name: Create RC service directory
+  ansible.builtin.file:
+    path: /usr/local/etc/rc.d
+    state: directory
+    mode: "0755"
+
+- name: Install exporter RC service
+  ansible.builtin.template:
+    src: unbound_exporter_rc.j2
+    dest: /usr/local/etc/rc.d/unbound_exporter
+    mode: "0755"
+  notify: Restart Unbound exporter
+
+- name: Restrict Unbound control key
+  ansible.builtin.file:
+    path: /var/unbound/unbound_control.key
+    mode: "0640"
+
+- name: Enable exporter in rc.conf
+  community.general.sysrc:
+    name: unbound_exporter_enable
+    value: "YES"
+
+- name: Start Unbound exporter
+  ansible.builtin.service:
+    name: unbound_exporter
+    state: started

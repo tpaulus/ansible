@@ -1,0 +1,11 @@
+k3s_control_node: true
+k3s_server:
+  write-kubeconfig-mode: '0644'
+  disable: [servicelb, traefik]
+  tls-san: k3s.brickyard.whitestar.systems
+  kubelet-arg:
+    - image-gc-high-threshold=10
+    - image-gc-low-threshold=5
+
+docker_user: "{{ vault_docker_user }}"
+docker_token: "{{ vault_docker_token }}"

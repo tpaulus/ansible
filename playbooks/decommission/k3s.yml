@@ -1,0 +1,83 @@
+---
+- name: Decommission one K3s node
+  hosts: tags_k3s
+  become: true
+  serial: 1
+  any_errors_fatal: true
+  tags: [decommission, k3s]
+  tasks:
+    - name: Require one explicit target and another healthy control plane
+      ansible.builtin.assert:
+        that:
+          - ansible_limit | default('') | length > 0
+          - ansible_play_hosts_all | length == 1
+          - k3s_decommission_confirm | default('') == inventory_hostname
+          - k3s_decommission_control_host is defined
+          - k3s_decommission_control_host != inventory_hostname
+          - k3s_decommission_control_host in groups['tags_k3s']
+          - hostvars[k3s_decommission_control_host]['k3s_control_node'] | default(false) | bool
+        fail_msg: Limit to one node, set k3s_decommission_confirm to its inventory name, and choose a different control-plane host.
+
+    - name: Read Kubernetes node name
+      ansible.builtin.set_fact:
+        k3s_decommission_node: "{{ ansible_facts['hostname'] | lower }}"
+
+    - name: Verify surviving control-plane health
+      delegate_to: "{{ k3s_decommission_control_host }}"
+      ansible.builtin.command:
+        argv: [kubectl, get, --raw=/readyz]
+      changed_when: false
+
+    - name: Read target node
+      delegate_to: "{{ k3s_decommission_control_host }}"
+      ansible.builtin.command:
+        argv: [kubectl, get, node, "{{ k3s_decommission_node }}", -o, json]
+      register: k3s_decommission_before
+      changed_when: false
+
+    - name: Cordon target node
+      delegate_to: "{{ k3s_decommission_control_host }}"
+      ansible.builtin.command:
+        argv: [kubectl, cordon, "{{ k3s_decommission_node }}"]
+      register: k3s_decommission_cordon
+      changed_when: "'already cordoned' not in k3s_decommission_cordon.stdout"
+
+    - name: Drain target node
+      delegate_to: "{{ k3s_decommission_control_host }}"
+      ansible.builtin.command:
+        argv:
+          - kubectl
+          - drain
+          - "{{ k3s_decommission_node }}"
+          - --ignore-daemonsets
+          - --delete-emptydir-data
+          - --timeout=300s
+      register: k3s_decommission_drain
+      changed_when: "'evicting pod' in k3s_decommission_drain.stdout"
+
+    - name: Stop K3s before deleting cluster membership
+      ansible.builtin.systemd_service:
+        name: "{{ 'k3s' if k3s_control_node | default(false) | bool else 'k3s-agent' }}"
+        state: stopped
+        enabled: false
+
+    - name: Stop remaining K3s containers
+      ansible.builtin.command: /usr/local/bin/k3s-killall.sh
+      changed_when: true
+
+    - name: Delete target node
+      delegate_to: "{{ k3s_decommission_control_host }}"
+      ansible.builtin.command:
+        argv: [kubectl, delete, node, "{{ k3s_decommission_node }}", --wait=true, --timeout=60s]
+      changed_when: true
+
+    - name: Verify target node is absent
+      delegate_to: "{{ k3s_decommission_control_host }}"
+      ansible.builtin.command:
+        argv: [kubectl, get, node, "{{ k3s_decommission_node }}", --ignore-not-found, -o, name]
+      register: k3s_decommission_after
+      changed_when: false
+
+    - name: Confirm removal
+      ansible.builtin.assert:
+        that: k3s_decommission_after.stdout | trim | length == 0

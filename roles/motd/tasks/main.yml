@@ -1,0 +1,21 @@
+---
+- name: Inspect SSH PAM configuration
+  when: ansible_facts['system'] == 'Linux'
+  ansible.builtin.stat:
+    path: /etc/pam.d/sshd
+  register: motd_pam_sshd
+
+- name: Disable dynamic MOTD on Linux
+  when:
+    - ansible_facts['system'] == 'Linux'
+    - motd_pam_sshd.stat.exists
+  ansible.builtin.replace:
+    path: /etc/pam.d/sshd
+    regexp: '^(session\s+optional\s+pam_motd\.so\s+motd=/run/motd\.dynamic.*)$'
+    replace: '#\1'
+
+- name: Install MOTD
+  ansible.builtin.template:
+    src: motd.j2
+    dest: "{{ '/var/run/motd' if ansible_facts['os_family'] == 'FreeBSD' else '/etc/motd' }}"
+    mode: "0644"

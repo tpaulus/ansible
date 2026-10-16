@@ -1,0 +1,16 @@
+#!/bin/sh
+# PROVIDE: unbound_exporter
+# REQUIRE: FILESYSTEMS NETWORKING
+# KEYWORD: shutdown
+
+{{ ansible_managed | comment }}
+
+. /etc/rc.subr
+name="unbound_exporter"
+rcvar="unbound_exporter_enable"
+pidfile="/var/run/${name}.pid"
+command="/usr/sbin/daemon"
+procname="{{ unbound_exporter_bin }}"
+command_args="-p ${pidfile} -f ${procname} -unbound.ca /var/unbound/unbound_server.pem -unbound.cert /var/unbound/unbound_control.pem -unbound.key /var/unbound/unbound_control.key -unbound.host {{ unbound_exporter_upstream }} -web.listen-address {{ unbound_exporter_listen }}"
+load_rc_config "$name"
+run_rc_command "$1"

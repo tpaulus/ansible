@@ -1,0 +1,26 @@
+---
+- name: Unlock stale Restic locks
+  hosts: device_roles_storage
+  become: true
+  serial: 1
+  tags: [maintenance, backups]
+  tasks:
+    - name: Require explicit storage targets and datasets
+      ansible.builtin.assert:
+        that:
+          - ansible_limit | default('') | length > 0
+          - ansible_limit != 'all'
+          - truenas_backup_shares | default([]) | length > 0
+        fail_msg: Specify --limit and the configured backup datasets.
+
+    - name: Unlock stale repository locks
+      ansible.builtin.command: /usr/bin/restic unlock
+      loop: "{{ truenas_backup_shares }}"
+      environment:
+        RESTIC_REPOSITORY: "s3:{{ b2_s3_endpoint }}/{{ offsite_b2_bucket_name }}/{{ item }}"
+        RESTIC_PASSWORD: "{{ offsite_restic_password }}"
+        AWS_ACCESS_KEY_ID: "{{ b2_account_id }}"
+        AWS_SECRET_ACCESS_KEY: "{{ b2_account_key }}"
+      register: restic_unlock
+      changed_when: "'successfully removed' in restic_unlock.stdout"
+      no_log: true

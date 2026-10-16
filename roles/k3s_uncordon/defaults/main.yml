@@ -1,0 +1,2 @@
+---
+k3s_uncordon_marker: /etc/k3s-drained

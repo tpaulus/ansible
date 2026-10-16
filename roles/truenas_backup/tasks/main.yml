@@ -1,0 +1,61 @@
+---
+- name: Validate storage backup inputs
+  ansible.builtin.assert:
+    that:
+      - ansible_facts['os_family'] == 'Debian'
+      - ansible_facts['architecture'] in truenas_backup_architectures
+      - truenas_backup_shares | length > 0
+      - offsite_restic_password is defined
+      - b2_account_key is defined
+    fail_msg: Storage backups require TrueNAS SCALE and configured vault-backed credentials.
+
+- name: Install backup prerequisites
+  ansible.builtin.apt:
+    name: [bzip2, ca-certificates, coreutils]
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Create Restic artifact directory
+  ansible.builtin.file:
+    path: /var/cache/ansible-restic
+    state: directory
+    mode: "0755"
+
+- name: Download verified Restic archive
+  vars:
+    truenas_backup_archive: "restic_{{ truenas_backup_restic_version }}_linux_{{ truenas_backup_architectures[ansible_facts['architecture']] }}"
+    truenas_backup_release: "https://github.com/restic/restic/releases/download/v{{ truenas_backup_restic_version }}"
+  ansible.builtin.get_url:
+    url: "{{ truenas_backup_release }}/{{ truenas_backup_archive }}.bz2"
+    checksum: "sha256:{{ truenas_backup_release }}/SHA256SUMS"
+    dest: "/var/cache/ansible-restic/{{ truenas_backup_archive }}.bz2"
+    mode: "0644"
+  register: truenas_backup_download
+
+- name: Unpack Restic archive
+  ansible.builtin.command:
+    argv: [bzip2, --decompress, --keep, --force, "{{ truenas_backup_download.dest }}"]
+    creates: "{{ truenas_backup_download.dest | regex_replace('\\.bz2$', '') }}"
+
+- name: Install pinned Restic
+  ansible.builtin.copy:
+    src: "{{ truenas_backup_download.dest | regex_replace('\\.bz2$', '') }}"
+    dest: "{{ truenas_backup_restic_bin }}"
+    remote_src: true
+    mode: "0755"
+
+- name: Create storage metrics directory
+  ansible.builtin.file:
+    path: "{{ truenas_backup_metrics_dir }}"
+    state: directory
+    mode: "0755"
+
+- name: Install offsite backup script
+  ansible.builtin.template:
+    dest: /usr/local/sbin/backup-to-b2
+    src: backup-script.sh.j2
+    owner: root
+    group: root
+    mode: "0700"
+  no_log: true

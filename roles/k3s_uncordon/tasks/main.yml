@@ -1,0 +1,26 @@
+---
+- name: Create systemd script directory
+  ansible.builtin.file:
+    path: /etc/systemd/scripts
+    state: directory
+    mode: "0755"
+
+- name: Install uncordon script
+  ansible.builtin.template:
+    src: uncordon-node.sh.j2
+    dest: /etc/systemd/scripts/uncordon-node.sh
+    mode: "0755"
+
+- name: Install uncordon unit
+  ansible.builtin.template:
+    src: uncordon-node.service.j2
+    dest: /etc/systemd/system/uncordon-node.service
+    mode: "0644"
+  register: k3s_uncordon_unit
+
+- name: Enable uncordon service
+  ansible.builtin.systemd_service:
+    name: uncordon-node.service
+    daemon_reload: "{{ k3s_uncordon_unit.changed }}"
+    enabled: true
+    state: started

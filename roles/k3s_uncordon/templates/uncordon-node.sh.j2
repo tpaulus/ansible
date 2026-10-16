@@ -1,0 +1,26 @@
+#!/usr/bin/env bash
+
+{{ ansible_managed | comment }}
+
+set -e
+
+MARKER_FILE={{ k3s_uncordon_marker | quote }}
+NODE_NAME="$(hostname)"
+RETRY_COUNT=60
+RETRY_INTERVAL=10
+
+echo "Uncordoning the Kubernetes node..."
+
+for attempt in $(seq 1 "$RETRY_COUNT"); do
+    if kubectl get node "$NODE_NAME" >/dev/null 2>&1; then
+        kubectl uncordon "$NODE_NAME"
+        rm -f "$MARKER_FILE"
+        exit 0
+    fi
+
+    echo "Waiting for Kubernetes API to become available (${attempt}/${RETRY_COUNT})..."
+    sleep "$RETRY_INTERVAL"
+done
+
+echo "Kubernetes API unavailable after $RETRY_COUNT attempts" >&2
+exit 1

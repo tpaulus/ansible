@@ -1,0 +1,47 @@
+---
+- name: Require a supported NTP service
+  ansible.builtin.assert:
+    that: >-
+      'chrony.service' in ansible_facts['services'] or
+      'systemd-timesyncd.service' in ansible_facts['services']
+    fail_msg: Install chrony or systemd-timesyncd before configuring NTP.
+
+- name: Create chrony source directory
+  when: "'chrony.service' in ansible_facts['services']"
+  ansible.builtin.file:
+    path: /etc/chrony/sources.d
+    state: directory
+    mode: "0755"
+
+- name: Load managed chrony sources
+  when: "'chrony.service' in ansible_facts['services']"
+  ansible.builtin.lineinfile:
+    path: /etc/chrony/chrony.conf
+    line: sourcedir /etc/chrony/sources.d
+  notify: Restart chrony
+
+- name: Configure chrony time sources
+  when: "'chrony.service' in ansible_facts['services']"
+  ansible.builtin.copy:
+    dest: /etc/chrony/sources.d/ansible.sources
+    content: "server {{ base_ntp_servers }} iburst\n"
+    mode: "0644"
+  notify: Restart chrony
+
+- name: Create timesyncd override directory
+  when: "'chrony.service' not in ansible_facts['services']"
+  ansible.builtin.file:
+    path: /etc/systemd/timesyncd.conf.d
+    state: directory
+    mode: "0755"
+
+- name: Configure timesyncd time sources
+  when: "'chrony.service' not in ansible_facts['services']"
+  ansible.builtin.copy:
+    dest: /etc/systemd/timesyncd.conf.d/ansible.conf
+    content: |
+      [Time]
+      NTP={{ base_ntp_servers }}
+      FallbackNTP={{ base_ntp_fallback }}
+    mode: "0644"
+  notify: Restart timesyncd

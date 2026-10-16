@@ -1,0 +1,11 @@
+---
+- name: Read K3s services
+  listen: Restart existing K3s
+  ansible.builtin.service_facts:
+
+- name: Restart existing K3s server
+  listen: Restart existing K3s
+  when: "'k3s.service' in ansible_facts['services']"
+  ansible.builtin.systemd_service:
+    name: k3s
+    state: restarted

@@ -1,0 +1,16 @@
+---
+- name: Validate UPS monitoring mode
+  ansible.builtin.assert:
+    that:
+      - nut_mode in ['primary', 'secondary', 'shutdown_only']
+      - ansible_facts['os_family'] in ['Debian', 'FreeBSD']
+
+- name: Install UPS shutdown script
+  ansible.builtin.template:
+    src: ups-shutdown.sh.j2
+    dest: /sbin/ups-shutdown
+    mode: "0755"
+
+- name: Configure managed NUT service
+  when: nut_mode != 'shutdown_only'
+  ansible.builtin.include_tasks: configure.yml

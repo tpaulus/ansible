@@ -1,0 +1,23 @@
+---
+- name: Set system timezone
+  community.general.timezone:
+    name: "{{ base_timezone }}"
+  notify: Restart cron
+
+- name: Configure compute tools
+  when: "'device_roles_compute' in group_names"
+  block:
+    - name: Require supported compute OS
+      ansible.builtin.assert:
+        that: ansible_facts['os_family'] == 'Debian'
+        fail_msg: Compute provisioning currently supports Debian-family systems only.
+    - name: Install common tools
+      ansible.builtin.apt:
+        name: "{{ base_packages }}"
+        state: present
+        update_cache: true
+        cache_valid_time: 3600
+    - name: Read service facts
+      ansible.builtin.service_facts:
+    - name: Configure active time synchronization backend
+      ansible.builtin.include_tasks: ntp.yml

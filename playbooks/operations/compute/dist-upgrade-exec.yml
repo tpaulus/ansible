@@ -1,0 +1,76 @@
+---
+- name: Upgrade Debian 12 to Debian 13
+  hosts: device_roles_compute
+  become: true
+  serial: 1
+  any_errors_fatal: true
+  tags: [maintenance, dist_upgrade]
+  tasks:
+    - name: Validate release upgrade prerequisites
+      ansible.builtin.assert:
+        that:
+          - ansible_facts['distribution'] == 'Debian'
+          - ansible_facts['distribution_major_version'] == '12'
+          - ansible_limit | default('') | length > 0
+          - ansible_limit != 'all'
+          - dist_upgrade_third_party_reviewed | default(false) | bool
+        fail_msg: Select Debian 12 compute hosts and confirm third-party repositories were reviewed with dist_upgrade_third_party_reviewed=true.
+
+    - name: Inspect reboot requirement
+      ansible.builtin.stat:
+        path: /run/reboot-required
+      register: dist_upgrade_reboot
+
+    - name: Require a clean reboot state
+      ansible.builtin.assert:
+        that: not dist_upgrade_reboot.stat.exists
+        fail_msg: Reboot before continuing the release upgrade.
+
+    - name: Inspect legacy APT source file
+      ansible.builtin.stat:
+        path: /etc/apt/sources.list
+      register: dist_upgrade_legacy_sources
+
+    - name: Switch legacy Debian sources to trixie
+      when: dist_upgrade_legacy_sources.stat.exists
+      ansible.builtin.replace:
+        path: /etc/apt/sources.list
+        regexp: '\bbookworm\b'
+        replace: trixie
+        backup: true
+
+    - name: Find official Debian source files
+      ansible.builtin.find:
+        paths: /etc/apt/sources.list.d
+        patterns: [debian.sources, debian.list]
+      register: dist_upgrade_sources
+
+    - name: Switch official Debian sources to trixie
+      ansible.builtin.replace:
+        path: "{{ item.path }}"
+        regexp: '\bbookworm\b'
+        replace: trixie
+        backup: true
+      loop: "{{ dist_upgrade_sources.files }}"
+      loop_control:
+        label: "{{ item.path }}"
+
+    - name: Upgrade to Debian 13
+      ansible.builtin.apt:
+        upgrade: dist
+        update_cache: true
+
+    - name: Refresh distribution facts
+      ansible.builtin.setup:
+        filter: ansible_distribution*
+
+    - name: Verify release upgrade
+      ansible.builtin.assert:
+        that: ansible_facts['distribution_major_version'] == '13'
+        fail_msg: Release upgrade did not reach Debian 13.
+
+    - name: Require reboot after release upgrade
+      ansible.builtin.copy:
+        content: "Debian release upgrade completed; reboot required.\n"
+        dest: /run/reboot-required
+        mode: "0644"

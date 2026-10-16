@@ -1,0 +1,8 @@
+---
+truenas_backup_restic_version: "0.18.1"
+truenas_backup_restic_bin: /usr/bin/restic
+truenas_backup_metrics_dir: "{{ node_exporter_textfile_dir | default('/var/lib/node_exporter') }}"
+truenas_backup_shares: []
+truenas_backup_architectures:
+  x86_64: amd64
+  aarch64: arm64

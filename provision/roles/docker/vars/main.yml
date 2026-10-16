@@ -1,4 +1,0 @@
-docker_distro: '{% if ansible_facts["distribution"] == "Pop!_OS" %}ubuntu{% else %}{{ ansible_facts["distribution"] | lower }}{% endif %}'
-docker_release: '{{ ansible_facts["distribution_release"] }}'
-
-docker_config: {}

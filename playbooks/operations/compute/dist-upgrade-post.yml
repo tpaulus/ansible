@@ -1,0 +1,37 @@
+---
+- name: Finish Debian 13 upgrade
+  hosts: device_roles_compute
+  become: true
+  serial: 1
+  any_errors_fatal: true
+  tags: [maintenance, dist_upgrade]
+  tasks:
+    - name: Validate post-upgrade targets
+      ansible.builtin.assert:
+        that:
+          - ansible_facts['distribution'] == 'Debian'
+          - ansible_facts['distribution_major_version'] == '13'
+          - ansible_limit | default('') | length > 0
+          - ansible_limit != 'all'
+
+    - name: Inspect reboot requirement
+      ansible.builtin.stat:
+        path: /run/reboot-required
+      register: dist_upgrade_reboot
+
+    - name: Require completed reboot
+      ansible.builtin.assert:
+        that: not dist_upgrade_reboot.stat.exists
+        fail_msg: Reboot into Debian 13 before post-upgrade cleanup.
+
+    - name: Clean APT cache and unused dependencies
+      ansible.builtin.apt:
+        clean: true
+        autoremove: true
+
+    - name: Modernize APT sources
+      ansible.builtin.command: apt --assume-yes modernize-sources
+      register: dist_upgrade_modernize
+      environment:
+        LC_ALL: C
+      changed_when: "'Modernizing' in dist_upgrade_modernize.stdout"

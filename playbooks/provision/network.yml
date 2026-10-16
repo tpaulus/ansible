@@ -1,0 +1,7 @@
+---
+- name: Configure Unbound exporter
+  hosts: device_roles_firewall
+  become: true
+  tags: [network, monitoring]
+  roles:
+    - role: unbound_exporter

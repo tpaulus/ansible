@@ -1,0 +1,12 @@
+---
+unbound_exporter_version: v0.4.6
+unbound_exporter_arch: "{{ unbound_exporter_architectures[ansible_facts['architecture']] }}"
+unbound_exporter_architectures:
+  x86_64: amd64
+  amd64: amd64
+  aarch64: arm64
+  arm64: arm64
+unbound_exporter_install_id: "{{ unbound_exporter_version }}/{{ unbound_exporter_arch }}"
+unbound_exporter_bin: /usr/local/sbin/unbound_exporter
+unbound_exporter_listen: 10.0.1.1:9167
+unbound_exporter_upstream: tcp://127.0.0.1:953

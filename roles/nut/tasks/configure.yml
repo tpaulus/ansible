@@ -1,0 +1,118 @@
+---
+- name: Install NUT
+  ansible.builtin.package:
+    name: [nut, sudo]
+    state: present
+
+- name: Create NUT configuration directory
+  ansible.builtin.file:
+    path: "{{ nut_config_dir }}"
+    state: directory
+    owner: root
+    group: "{{ nut_group }}"
+    mode: "0750"
+
+- name: Create NUT runtime directory
+  ansible.builtin.file:
+    path: /var/run/nut
+    state: directory
+    owner: "{{ nut_user }}"
+    group: "{{ nut_group }}"
+    mode: "0755"
+
+- name: Configure NUT mode
+  ansible.builtin.template:
+    src: nut.conf.j2
+    dest: "{{ nut_config_dir }}/nut.conf"
+    mode: "0644"
+  notify: Restart NUT
+
+- name: Configure UPS server
+  when: nut_mode == 'primary'
+  ansible.builtin.template:
+    src: "{{ item }}.j2"
+    dest: "{{ nut_config_dir }}/{{ item }}"
+    owner: "{{ nut_user }}"
+    group: "{{ nut_group }}"
+    mode: "0640"
+  loop: [ups.conf, upsd.conf, upsd.users]
+  no_log: true
+  notify: Restart NUT
+
+- name: Configure UPS monitor
+  ansible.builtin.template:
+    src: "upsmon-{{ nut_mode }}.conf.j2"
+    dest: "{{ nut_config_dir }}/upsmon.conf"
+    owner: root
+    group: "{{ nut_group }}"
+    mode: "0640"
+  no_log: true
+  notify: Restart NUT
+
+- name: Install UPS scheduler
+  ansible.builtin.template:
+    src: upssched-cmd.j2
+    dest: /usr/local/bin/upssched-cmd
+    mode: "0755"
+  notify: Restart NUT
+
+- name: Permit only the UPS emergency shutdown command
+  ansible.builtin.copy:
+    dest: /usr/local/etc/sudoers.d/ansible-nut-shutdown
+    content: "{{ nut_user }} ALL=(root) NOPASSWD: /sbin/ups-shutdown\n"
+    mode: "0440"
+    validate: /usr/local/sbin/visudo -cf %s
+  when: ansible_facts['os_family'] == 'FreeBSD'
+
+- name: Permit Linux UPS emergency shutdown
+  ansible.builtin.copy:
+    dest: /etc/sudoers.d/ansible-nut-shutdown
+    content: "{{ nut_user }} ALL=(root) NOPASSWD: /sbin/ups-shutdown\n"
+    mode: "0440"
+    validate: /usr/sbin/visudo -cf %s
+  when: ansible_facts['os_family'] == 'Debian'
+
+- name: Configure UPS scheduler
+  ansible.builtin.template:
+    src: upssched.conf.j2
+    dest: "{{ nut_config_dir }}/upssched.conf"
+    mode: "0644"
+  notify: Restart NUT
+
+- name: Enable FreeBSD NUT services
+  when: ansible_facts['os_family'] == 'FreeBSD'
+  community.general.sysrc:
+    name: "{{ item }}_enable"
+    value: "YES"
+  loop: "{{ nut_services }}"
+
+- name: Read Linux services
+  when: ansible_facts['system'] == 'Linux'
+  ansible.builtin.service_facts:
+
+- name: Disable unused Linux NUT driver on secondary hosts
+  when:
+    - ansible_facts['system'] == 'Linux'
+    - nut_mode == 'secondary'
+    - "'nut-driver.service' in ansible_facts['services']"
+  ansible.builtin.systemd_service:
+    name: nut-driver.service
+    enabled: false
+    state: stopped
+    masked: true
+
+- name: Unmask Linux NUT driver on primary hosts
+  when:
+    - ansible_facts['system'] == 'Linux'
+    - nut_mode == 'primary'
+    - "'nut-driver.service' in ansible_facts['services']"
+  ansible.builtin.systemd_service:
+    name: nut-driver.service
+    masked: false
+
+- name: Enable NUT services
+  ansible.builtin.service:
+    name: "{{ item }}"
+    enabled: true
+    state: started
+  loop: "{{ nut_services }}"

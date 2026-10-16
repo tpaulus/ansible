@@ -1,0 +1,76 @@
+---
+- name: Configure base system
+  hosts: all
+  become: true
+  tags: [base]
+  roles:
+    - role: base
+
+- name: Enable TrueNAS development tools
+  hosts: WoodlandPark
+  become: true
+  tags: [truenas_bootstrap]
+  tasks:
+    - name: Inspect APT availability
+      ansible.builtin.stat:
+        path: /usr/bin/apt
+      register: truenas_apt
+    - name: Enable APT
+      ansible.builtin.command: /usr/bin/install-dev-tools
+      when: not truenas_apt.stat.executable | default(false)
+      changed_when: true
+
+- name: Configure node exporter
+  hosts: device_roles_compute:device_roles_storage
+  become: true
+  tags: [monitoring]
+  vars:
+    node_exporter_system_user: node-exp
+    node_exporter_system_group: node-exp
+  tasks:
+    - name: Configure node exporter with upstream role
+      ansible.builtin.include_role:
+        name: prometheus.prometheus.node_exporter
+        apply:
+          tags: [monitoring]
+
+- name: Configure primary UPS monitoring
+  hosts: racks_Compute:&tags_nut_primary
+  become: true
+  tags: [nut]
+  vars:
+    nut_mode: primary
+  roles:
+    - role: nut
+
+- name: Configure TrueNAS UPS shutdown
+  hosts: WoodlandPark
+  become: true
+  tags: [nut]
+  vars:
+    nut_mode: shutdown_only
+  roles:
+    - role: nut
+
+- name: Configure secondary UPS monitoring
+  hosts: racks_Compute:!tags_nut_primary:!device_roles_storage
+  become: true
+  tags: [nut]
+  vars:
+    nut_mode: secondary
+  roles:
+    - role: nut
+
+- name: Configure unattended upgrades
+  hosts: device_roles_compute
+  become: true
+  tags: [unattended_upgrades]
+  roles:
+    - role: unattended_upgrades
+
+- name: Configure message of the day
+  hosts: all
+  become: true
+  tags: [motd]
+  roles:
+    - role: motd

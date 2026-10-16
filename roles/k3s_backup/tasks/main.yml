@@ -1,0 +1,32 @@
+---
+- name: Install backup dependencies
+  ansible.builtin.apt:
+    name: [nfs-common, rsync, logrotate]
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Create backup metric directory
+  ansible.builtin.file:
+    path: "{{ k3s_backup_metrics_dir }}"
+    state: directory
+    mode: "0755"
+
+- name: Install etcd backup script
+  ansible.builtin.template:
+    src: backup_etcd.sh.j2
+    dest: "{{ k3s_backup_script }}"
+    mode: "0755"
+
+- name: Configure etcd backup log rotation
+  ansible.builtin.template:
+    src: etc_logrotate.d_etcd_backups.j2
+    dest: /etc/logrotate.d/k3s_etcd_backups
+    mode: "0644"
+
+- name: Schedule etcd backup
+  ansible.builtin.cron:
+    name: backup-k3s-etcd
+    minute: "0"
+    hour: "1,13"
+    job: "bash {{ k3s_backup_script | quote }} > {{ k3s_backup_log | quote }} 2>&1"

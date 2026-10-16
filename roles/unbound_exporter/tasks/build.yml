@@ -1,0 +1,49 @@
+---
+- name: Build exporter on controller
+  delegate_to: localhost
+  become: false
+  block:
+    - name: Create isolated build directory
+      ansible.builtin.tempfile:
+        state: directory
+        prefix: ansible-unbound-
+      register: unbound_exporter_build
+
+    - name: Checkout pinned exporter
+      ansible.builtin.git:
+        repo: https://github.com/letsencrypt/unbound_exporter.git
+        dest: "{{ unbound_exporter_build.path }}/source"
+        version: "{{ unbound_exporter_version }}"
+
+    - name: Compile FreeBSD exporter
+      ansible.builtin.command:
+        argv: [go, build, -o, "{{ unbound_exporter_build.path }}/unbound_exporter", "."]
+        chdir: "{{ unbound_exporter_build.path }}/source"
+        creates: "{{ unbound_exporter_build.path }}/unbound_exporter"
+      environment:
+        GOOS: freebsd
+        GOARCH: "{{ unbound_exporter_arch }}"
+        CGO_ENABLED: "0"
+
+    - name: Copy exporter to target
+      delegate_to: "{{ inventory_hostname }}"
+      become: true
+      ansible.builtin.copy:
+        src: "{{ unbound_exporter_build.path }}/unbound_exporter"
+        dest: "{{ unbound_exporter_bin }}"
+        mode: "0755"
+      notify: Restart Unbound exporter
+
+    - name: Record installed version
+      delegate_to: "{{ inventory_hostname }}"
+      become: true
+      ansible.builtin.copy:
+        content: "{{ unbound_exporter_install_id }}\n"
+        dest: "{{ unbound_exporter_bin }}.version"
+        mode: "0644"
+  always:
+    - name: Remove isolated build directory
+      when: unbound_exporter_build.path is defined
+      ansible.builtin.file:
+        path: "{{ unbound_exporter_build.path }}"
+        state: absent

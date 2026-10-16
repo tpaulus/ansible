@@ -1,2 +1,0 @@
-cadvisor_bin_path: "/usr/local/bin/cadvisor"
-cadvisor_service_name: "cadvisor"

@@ -1,0 +1,42 @@
+---
+- name: Prepare Debian 12 upgrade
+  hosts: device_roles_compute
+  become: true
+  serial: 1
+  any_errors_fatal: true
+  tags: [maintenance, dist_upgrade]
+  tasks:
+    - name: Validate upgrade targets
+      ansible.builtin.assert:
+        that:
+          - ansible_facts['distribution'] == 'Debian'
+          - ansible_facts['distribution_major_version'] == '12'
+          - ansible_limit | default('') | length > 0
+          - ansible_limit != 'all'
+        fail_msg: Select Debian 12 compute hosts explicitly with --limit.
+
+    - name: Require at least 5 GiB available on root
+      vars:
+        dist_upgrade_root_mounts: "{{ ansible_facts['mounts'] | selectattr('mount', 'equalto', '/') | list }}"
+      ansible.builtin.assert:
+        that:
+          - dist_upgrade_root_mounts | length == 1
+          - dist_upgrade_root_mounts[0].size_available > 5 * 1024 * 1024 * 1024
+        fail_msg: Root filesystem facts are missing or available disk space is below 5 GiB.
+
+    - name: Update Debian 12 packages
+      ansible.builtin.apt:
+        upgrade: dist
+        update_cache: true
+        autoremove: true
+        clean: true
+
+    - name: Inspect reboot requirement
+      ansible.builtin.stat:
+        path: /run/reboot-required
+      register: dist_upgrade_reboot
+
+    - name: Require reboot before release upgrade
+      ansible.builtin.assert:
+        that: not dist_upgrade_reboot.stat.exists
+        fail_msg: Reboot the host before running the release upgrade.

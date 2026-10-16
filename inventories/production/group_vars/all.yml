@@ -1,0 +1,7 @@
+---
+node_exporter_version: "1.10.2"
+node_exporter_textfile_dir: /var/lib/node_exporter
+motd_netbox_base_url: https://netbox.whitestar.systems
+k3s_backup_server: woodlandpark.brickyard.whitestar.systems
+k3s_backup_share: /mnt/tank/Server Backups/k3s-etcd
+k3s_backup_share_name: Server Backups - K3s etcd

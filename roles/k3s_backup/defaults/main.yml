@@ -1,0 +1,6 @@
+---
+k3s_backup_script: /usr/sbin/backup-k3s-etcd.sh
+k3s_backup_log: /var/log/k3s-etcd-backup.log
+k3s_backup_source: /var/lib/rancher/k3s/server/db/snapshots
+k3s_backup_metrics_dir: "{{ node_exporter_textfile_dir | default('/var/lib/node_exporter') }}"
+k3s_backup_retention_days: 14

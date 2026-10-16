@@ -1,0 +1,30 @@
+{{ ansible_managed | comment }}
+
+// Match codenames rather than suites so Debian's stable/oldstable transition
+// neither blocks updates nor opts hosts into a new distribution release.
+Unattended-Upgrade::Origins-Pattern {
+    "origin=${distro_id},codename=${distro_codename}";
+    "origin=${distro_id},codename=${distro_codename}-security";
+    "origin=${distro_id},codename=${distro_codename}-updates";
+{% if ansible_facts['distribution'] == 'Ubuntu' %}
+    "origin=${distro_id}ESMApps,codename=${distro_codename}-apps-security";
+    "origin=${distro_id}ESM,codename=${distro_codename}-infra-security";
+{% endif %}
+};
+
+// No package whitelist: include versioned kernels, metapackages and other updates.
+
+// Automatically remove unused kernel packages
+Unattended-Upgrade::Remove-Unused-Kernel-Packages "true";
+
+// Automatically remove unused dependencies
+Unattended-Upgrade::Remove-Unused-Dependencies "true";
+
+// Enable automatic reboots after updates when needed
+// However, we do not do this for K3s nodes, as Kured
+// Reboots those nodes
+Unattended-Upgrade::Automatic-Reboot "{{ ('tags_k3s' not in group_names) | ternary('true', 'false') }}";
+
+// Added safety measures
+Unattended-Upgrade::MinimalSteps "true";
+Unattended-Upgrade::InstallOnShutdown "false";

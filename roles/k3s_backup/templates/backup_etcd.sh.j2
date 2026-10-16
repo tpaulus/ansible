@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+
+{{ ansible_managed | comment }}
+
+set -euo pipefail
+mount_dir=$(mktemp -d)
+cleanup() {
+    if mountpoint -q "$mount_dir"; then
+        umount "$mount_dir" || return 1
+    fi
+    rmdir "$mount_dir"
+}
+trap cleanup EXIT
+
+mount -t nfs {{ (k3s_backup_server ~ ':' ~ k3s_backup_share) | quote }} "$mount_dir"
+destination="$mount_dir"/{{ ansible_facts['hostname'] | quote }}
+mkdir -p "$destination"
+rsync -rlt --partial --delete {{ (k3s_backup_source ~ '/') | quote }} "$destination/"
+find "$destination" -type f -name 'etcd-snapshot-*' -mtime +{{ k3s_backup_retention_days }} -delete
+
+metric={{ (k3s_backup_metrics_dir ~ '/k3s_etcd_backup.prom') | quote }}
+printf 'k3s_etcd_backup_completed %s\n' "$(date +%s)" > "$metric.$$"
+mv "$metric.$$" "$metric"

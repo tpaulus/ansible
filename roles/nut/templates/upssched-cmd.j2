@@ -1,0 +1,22 @@
+#! /bin/sh
+
+{{ ansible_managed | comment }}
+
+# This script should be called by upssched via the CMDSCRIPT directive.
+
+case "$1" in
+    SHUTDOWN)
+{% if nut_timed_shutdown_enabled %}
+        exec {{ '/usr/local/bin/sudo' if ansible_facts['os_family'] == 'FreeBSD' else '/usr/bin/sudo' }} -n /sbin/ups-shutdown
+{% else %}
+        logger -t upssched "Timed shutdown is disabled; upsmon still handles critical battery events"
+{% endif %}
+        ;;
+    NOTIFY-*|COMMOK)
+        logger -t upssched "$1"
+        ;;
+    *)
+        logger -t upssched "Unknown event: $1"
+        exit 1
+        ;;
+esac

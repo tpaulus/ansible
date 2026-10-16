@@ -1,0 +1,3 @@
+---
+motd_netbox_base_url: ""
+motd_netbox_url: "{{ motd_netbox_base_url ~ '/dcim/devices/' ~ netbox_device_id ~ '/' if netbox_device_id is defined else '' }}"

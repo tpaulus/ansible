@@ -1,9 +1,0 @@
----
-# - name: Auto Highstate
-#   ansible.builtin.import_playbook: ansible-applier.yaml
-- name: Common Configuration
-  ansible.builtin.import_playbook: common.yaml
-- name: TrueNAS
-  ansible.builtin.import_playbook: truenas.yaml
-- name: K3s
-  ansible.builtin.import_playbook: k3s.yaml

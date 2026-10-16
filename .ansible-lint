@@ -1,6 +1,7 @@
 ---
+profile: production
 exclude_paths:
   - .ansible/collections
   - .github
-  - group_vars/*/vault.yaml
-  - host_vars/*/vault.yaml
+  - .ansible
+  - inventories/production/group_vars/*/vault.yaml

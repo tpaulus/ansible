@@ -1,0 +1,36 @@
+#!/bin/sh
+
+{{ ansible_managed | comment }}
+
+# Configurable interval to drain Kubernetes Pods
+DRAIN_INTERVAL=90  # in seconds
+
+# Message for the shutdown command broadcast
+SHUTDOWN_MESSAGE="Emergency shutdown due to power loss. System will power off soon."
+
+# Function to drain Kubernetes Pods
+drain_kubernetes() {
+    echo "Draining Kubernetes Pods..."
+    touch /etc/k3s-drained
+    if ! kubectl drain --force --ignore-daemonsets --delete-emptydir-data --timeout="${DRAIN_INTERVAL}s" "$(hostname)"; then
+        logger -t ups-shutdown "Kubernetes drain failed; continuing emergency shutdown"
+    fi
+}
+
+# Function to shutdown the system with a broadcast message
+shutdown_system() {
+    echo "Shutting down the system..."
+{% if ansible_facts['os_family'] == 'FreeBSD' %}
+    /sbin/shutdown -p now "$SHUTDOWN_MESSAGE"
+{% else %}
+    /sbin/shutdown -h now "$SHUTDOWN_MESSAGE"
+{% endif %}
+}
+
+# Main execution
+
+{% if "tags_k3s" in group_names %}
+drain_kubernetes
+{% endif %}
+
+shutdown_system
