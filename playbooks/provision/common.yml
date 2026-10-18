@@ -34,6 +34,11 @@
         name: prometheus.prometheus.node_exporter
         apply:
           tags: [monitoring]
+    - name: Configure reboot-required telemetry
+      ansible.builtin.include_role:
+        name: reboot_metrics
+        apply:
+          tags: [monitoring]
 
 - name: Configure primary UPS monitoring
   hosts: racks_Compute:&tags_nut_primary
