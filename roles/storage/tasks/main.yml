@@ -38,6 +38,9 @@
   ansible.builtin.set_fact:
     storage_dataset_names: "{{ storage_dataset_inventory.stdout_lines }}"
 
+- name: Report undeclared datasets without modifying storage
+  ansible.builtin.import_tasks: report.yml
+
 - name: Manage declared share backing roots
   ansible.builtin.include_tasks: root.yml
   vars:

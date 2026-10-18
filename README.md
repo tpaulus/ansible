@@ -134,6 +134,11 @@ and NFS `clients` remain mandatory. Set `write_users: []` for read-only SMB;
 an explicit write list limits writers. `%U` paths still require declared private
 children for every permitted user. Dataset creation always requires `create: true`.
 ZFS properties are unmanaged unless explicitly declared, not reset to defaults.
+Storage runs (including check mode) report existing ZFS filesystems in approved
+pools that are not declared as share roots, application datasets or app-state
+capture datasets. Removed private children appear in this report; their datasets
+and data are left untouched. Undeclared descendants are reported individually,
+even beneath a declared parent. Ordinary directories and snapshots are not included.
 
 ```yaml
 nas:
