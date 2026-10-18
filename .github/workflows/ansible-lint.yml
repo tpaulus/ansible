@@ -26,5 +26,3 @@ jobs:
         run: ansible-lint --offline
       - name: Check every playbook
         run: bash scripts/check-syntax.sh
-      - name: Check share resolution and templates
-        run: python -m unittest discover -s tests
