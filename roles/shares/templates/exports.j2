@@ -1,0 +1,5 @@
+# {{ ansible_managed }}
+{% for export in config_resolved.nfs %}
+{{ export.path | exports_path }}{% for client in export.clients %} {{ client }}({{ 'ro' if export.read_only else 'rw' }},sync,no_subtree_check,sec={{ export.security }},{% if export.squash == 'all' %}all_squash,anonuid={{ export.anonuid }},anongid={{ export.anongid }}{% elif export.squash == 'none' %}no_root_squash{% else %}root_squash{% endif %}){% endfor %}
+
+{% endfor %}

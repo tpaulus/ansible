@@ -1,8 +1,4 @@
 ---
-- name: Require Debian-family system
-  ansible.builtin.assert:
-    that: ansible_facts['os_family'] == 'Debian'
-
 - name: Install Longhorn dependencies
   ansible.builtin.apt:
     name: [open-iscsi, nfs-common]

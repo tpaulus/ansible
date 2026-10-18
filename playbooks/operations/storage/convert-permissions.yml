@@ -1,0 +1,104 @@
+---
+- name: Apply a reviewed Unix permission conversion
+  hosts: device_roles_storage
+  become: true
+  serial: 1
+  tasks:
+    - name: Detect the source appliance before changing metadata
+      ansible.builtin.stat:
+        path: /usr/bin/midclt
+      register: permission_appliance
+
+    - name: Require a single confirmed target and tested recovery
+      ansible.builtin.assert:
+        that:
+          - ansible_limit | default('') | length > 0
+          - ansible_limit != 'all'
+          - ansible_play_hosts_all | length == 1
+          - permission_confirm | default('') == inventory_hostname
+          - permission_restore_rehearsed | default(false) | bool
+          - permission_writers_stopped | default(false) | bool
+          - permission_metadata_archive | default('') is match('^/')
+          - permission_metadata_sha256 | default('') is match('^[0-9a-f]{64}$')
+          - (permission_manifest is defined) != (permission_roots is defined)
+          - ansible_facts['distribution'] == 'Debian'
+          - not permission_appliance.stat.exists
+        fail_msg: Require reviewed permission roots or manifest, stopped writers, an off-host metadata archive and rehearsed restoration.
+
+    - name: Check the off-host ACL and xattr archive on the controller
+      ansible.builtin.stat:
+        path: "{{ permission_metadata_archive }}"
+        checksum_algorithm: sha256
+      delegate_to: localhost
+      become: false
+      register: permission_archive
+
+    - name: Verify the reviewed archive checksum
+      ansible.builtin.assert:
+        that:
+          - permission_archive.stat.isreg | default(false)
+          - permission_archive.stat.checksum | default('') == permission_metadata_sha256
+        fail_msg: The off-host ACL/xattr archive is missing or differs from the reviewed checksum.
+
+    - name: Validate share and account references
+      ansible.builtin.include_role:
+        name: config
+
+    - name: Verify pool identity before changing metadata
+      ansible.builtin.import_role:
+        name: storage
+        tasks_from: identity
+
+    - name: Resolve the reviewed per-path conversion plan
+      ansible.builtin.set_fact:
+        permission_plan: "{{ permission_manifest | permission_plan(config_resolved, accounts_users, accounts_groups) }}"
+      when: permission_manifest is defined
+
+    - name: Resolve selected NetBox roots for native recursive tools
+      ansible.builtin.set_fact:
+        permission_plan: "{{ permission_roots | recursive_permission_plan(config_resolved, accounts_users, accounts_groups) }}"
+      when: permission_roots is defined
+
+    - name: Create restricted migration workspace
+      ansible.builtin.file:
+        path: /var/lib/nas-migration
+        state: directory
+        owner: root
+        group: root
+        mode: "0700"
+
+    - name: Ensure the shared mount guard directory
+      ansible.builtin.file:
+        path: /usr/local/libexec
+        state: directory
+        mode: "0755"
+
+    - name: Install the backing-filesystem verifier for conversion
+      ansible.builtin.copy:
+        src: "{{ playbook_dir }}/../../../roles/storage/files/mount-guard"
+        dest: /usr/local/libexec/mount-guard
+        mode: "0755"
+
+    - name: Stage the reviewed conversion manifest
+      ansible.builtin.copy:
+        content: "{{ permission_plan | to_nice_json }}"
+        dest: /var/lib/nas-migration/permissions.json
+        mode: "0600"
+
+    - name: Validate selected permission scope before changes
+      ansible.builtin.script:
+        cmd: >-
+          {{ playbook_dir }}/../../../scripts/convert-permissions.py /var/lib/nas-migration/permissions.json
+          {{ '--recursive' if permission_roots is defined else '' }}
+        executable: /usr/bin/python3
+      changed_when: false
+      check_mode: false
+      when: not ansible_check_mode
+
+    - name: Apply reviewed permissions without deleting legacy ACL metadata
+      ansible.builtin.script:
+        cmd: >-
+          {{ playbook_dir }}/../../../scripts/convert-permissions.py /var/lib/nas-migration/permissions.json --apply
+          {{ '--recursive' if permission_roots is defined else '' }}
+        executable: /usr/bin/python3
+      changed_when: true

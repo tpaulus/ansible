@@ -1,0 +1,30 @@
+#!/usr/bin/env bash
+{{ ansible_managed | comment }}
+set -euo pipefail
+umask 077
+exec 9>/run/lock/cloud-sync.lock
+flock -n 9 || { echo "Another cloud sync is active" >&2; exit 75; }
+verify_source() {
+    {{ backup_mount_guard | quote }} {{ config_resolved.datasets[backup_cloud_sync_dataset_key].path | quote }} {{ config_resolved.datasets[backup_cloud_sync_dataset_key].dataset | quote }} || return 1
+}
+verify_source
+args=(sync \
+    {{ config_resolved.datasets[backup_cloud_sync_dataset_key].path | quote }} encrypted: \
+    --config /etc/backup/rclone.conf --filter-from /etc/backup/cloud-sync.filters \
+    --create-empty-src-dirs --log-level NOTICE)
+{% if not backup_cloud_sync_deletion_approved %}
+args+=(--dry-run)
+{% endif %}
+result=0
+/usr/bin/rclone "${args[@]}" || result=$?
+if ((result == 0)); then
+{% if backup_cloud_sync_deletion_approved %}
+    metrics={{ (backup_metrics_dir ~ '/server_backups_offsite.prom') | quote }}
+    printf 'server_backups_offsite_backup_completed %s\n' "$(date +%s)" > "$metrics.$$"
+    chmod 0644 "$metrics.$$"
+    mv "$metrics.$$" "$metrics"
+{% else %}
+    echo "Dry-run only: restore and deletion review are required before activation"
+{% endif %}
+fi
+exit "$result"

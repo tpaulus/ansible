@@ -1,0 +1,173 @@
+---
+podman_enabled: true
+podman_accounts: "{{ apps_accounts }}"
+apps_enabled: true
+apps_exporters_enabled: true
+apps_exporter_ports:
+  nas-jellyfin: 9882
+  nas-prometheus: 9883
+  nas-webdav: 9884
+apps_exporter_metrics_sources: [10.0.40.0/24]
+# Creation is explicit; import is separately confirmed and never a provisioning side effect.
+apps_create_datasets: true
+apps_webdav_htpasswd: "{{ vault_nas_webdav_htpasswd | default('') }}"
+
+# Repository-owned capture roots, provisioned separately as root:root 0700.
+# No helper creates/destroys datasets or deletes retained snapshots/generations.
+# The pool has over 13 TB available against about 270 GB initial app state;
+# retain a 1 TiB pool-free floor and check every changed-file estimate.
+apps_capture_parents:
+  - {dataset: tank/app-backups, path: /mnt/tank/app-backups}
+apps_captures:
+  jellyfin:
+    path: /mnt/tank/app-backups/jellyfin
+    dataset: tank/app-backups/jellyfin
+    minimum_free_bytes: 1099511627776
+  prometheus:
+    path: /mnt/tank/app-backups/prometheus
+    dataset: tank/app-backups/prometheus
+    minimum_free_bytes: 1099511627776
+  webdav:
+    path: /mnt/tank/app-backups/webdav
+    dataset: tank/app-backups/webdav
+    minimum_free_bytes: 1099511627776
+
+# Reviewed against the source passwd/group and subid tables on 2026-10-17.
+# WebDAV retains 666 to preserve Svalbard ownership. New runtime clones map 568 to
+# distinct Jellyfin/Prometheus host IDs; their container-visible identity stays 568.
+# Do not carry TrueNAS's root subordinate maps (including 0:568:568) to Debian.
+apps_accounts:
+  - {name: nas-jellyfin, uid: 3100, gid: 3100, home: /var/lib/nas-jellyfin, subuid_start: 200000, subgid_start: 200000, subid_count: 65536}
+  - {name: nas-prometheus, uid: 3101, gid: 3101, home: /var/lib/nas-prometheus, subuid_start: 300000, subgid_start: 300000, subid_count: 65536}
+  - {name: nas-webdav, uid: 666, gid: 666, home: /var/lib/nas-webdav, subuid_start: 400000, subgid_start: 400000, subid_count: 65536}
+
+apps_definitions:
+  jellyfin:
+    account: nas-jellyfin
+    image: "{{ jellyfin_image }}"
+    container_uid: 568
+    container_gid: 568
+    network: pasta
+    ports: ["30013:8096/tcp", "30014:8920/tcp", "7359:7359/udp"]
+    gpu_device: /dev/dri/by-path/pci-0000:00:02.0-render
+    # Approved Unix access mapping; conversion remains a separate operation.
+    supplementary_groups: [nas-media]
+    backup_targets: [/config, /jellyfin/jellyfin-web/ui]
+    environment:
+      TZ: UTC
+      JELLYFIN_DATA_DIR: /config
+      JELLYFIN_CONFIG_DIR: /config/config
+      JELLYFIN_CACHE_DIR: /cache
+      JELLYFIN_LOG_DIR: /config/log
+      JELLYFIN_WEB_DIR: /jellyfin/jellyfin-web
+      JELLYFIN_FFMPEG: /usr/lib/jellyfin-ffmpeg/ffmpeg
+      XDG_CACHE_HOME: /cache
+    mounts:
+      - path: /mnt/tank/apps/jellyfin-config
+        dataset: tank/apps/jellyfin-config
+        target: /config
+        access: rw
+        create: true
+        require_import: true
+        import_name: jellyfin-config
+        required_files: [config/system.xml, data/jellyfin.db]
+      - path: /mnt/tank/apps/jellyfin-cache
+        dataset: tank/apps/jellyfin-cache
+        target: /cache
+        access: rw
+        create: true
+      - path: /mnt/tank/apps/jellyfin-ui
+        dataset: tank/apps/jellyfin-ui
+        target: /jellyfin/jellyfin-web/ui
+        access: rw
+        create: true
+        require_import: true
+        import_name: jellyfin-ui
+      - {dataset_key: media, relative_path: Movies, target: /media/movies, access: rw}
+      - {dataset_key: media, relative_path: TV, target: /media/tv, access: rw}
+      - path: /mnt/tank/apps/jellyfin-cache/transcodes
+        dataset: tank/apps/jellyfin-cache
+        target: /config/transcodes
+        access: rw
+        create_directory: true
+    health_cmd: curl --request GET --silent --output /dev/null --show-error --fail http://127.0.0.1:8096/health
+    readiness_url: http://127.0.0.1:30013/health
+
+  prometheus:
+    account: nas-prometheus
+    image: "{{ prometheus_image }}"
+    container_uid: 568
+    container_gid: 568
+    # Source really uses host networking, including localhost semantics.
+    network: host
+    backup_targets: [/config, /data]
+    command:
+      - --web.listen-address=0.0.0.0:9090
+      - --storage.tsdb.path=/data
+      - --config.file=/config/prometheus.yml
+      - --storage.tsdb.retention.time=5y
+      - --storage.tsdb.retention.size=2TB
+      - --storage.tsdb.wal-compression
+      - --web.enable-lifecycle
+    mounts:
+      - path: /mnt/tank/apps/prometheus-runtime-config
+        dataset: tank/apps/prometheus-runtime-config
+        target: /config
+        access: ro
+        create: true
+        require_import: true
+        import_name: prometheus-config
+        required_files: [prometheus.yml]
+      - path: /mnt/tank/apps/prometheus-runtime-data
+        dataset: tank/apps/prometheus-runtime-data
+        target: /data
+        access: rw
+        create: true
+        require_import: true
+        import_name: prometheus-data
+        required_files: [wal]
+    # The only deployed job is federation; NetBox discovery lives upstream.
+    # There are no source rule files, remote endpoints, or scrape credentials.
+    configuration:
+      scrape_configs:
+        - job_name: federate
+          scrape_interval: 15s
+          honor_labels: true
+          metrics_path: /federate
+          scheme: https
+          params:
+            "match[]":
+              - '{job="kubernetes-pods"}'
+              - '{job="kubernetes-service-endpoints"}'
+              - '{job="netbox-devices"}'
+          static_configs:
+            - targets: [prometheus.ing.k3s.brickyard.whitestar.systems]
+    rule_files: []
+    health_cmd: wget --quiet --spider http://127.0.0.1:9090/-/ready
+    readiness_url: http://127.0.0.1:9090/-/ready
+
+  webdav:
+    account: nas-webdav
+    image: "{{ webdav_image }}"
+    container_uid: 666
+    container_gid: 666
+    network: pasta
+    # Protect DAV locks/config/auth, not all uploaded documents by surprise.
+    # Svalbard document backup coverage remains a separate reviewed policy.
+    backup_targets: [/state]
+    ports: ["30035:30035/tcp"]
+    command: [httpd-foreground]
+    mounts:
+      - {dataset_key: svalbard, target: /shares/Svalbard, access: rw}
+      - path: /mnt/tank/apps/webdav-state
+        # Stopped source var + sole temporary volume were empty: no DAV locks
+        # existed to recover. Private state records deliberate initialization.
+        dataset: tank/apps/webdav-state
+        target: /state
+        access: rw
+        create: true
+        require_import: true
+        import_name: webdav-state
+    health_cmd: bash -c 'echo >/dev/tcp/127.0.0.1/30035'
+    readiness_url: http://127.0.0.1:30035/Svalbard/
+    readiness_status: 401

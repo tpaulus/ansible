@@ -1,0 +1,55 @@
+---
+- name: Manage explicitly configured NAS applications
+  when: apps_enabled | bool
+  tags: [apps, jellyfin, prometheus, webdav]
+  block:
+    - name: Select only explicitly tagged applications
+      ansible.builtin.set_fact:
+        apps_active: "{{ apps_selected | select_apps(ansible_run_tags) }}"
+
+    - name: Resolve application definitions and stable dataset references
+      ansible.builtin.set_fact:
+        apps_resolved: "{{ apps_definitions | resolve_apps(config_resolved | default({}), apps_accounts, apps_active) }}"
+
+    - name: Install the application management command
+      ansible.builtin.template:
+        src: appctl.sh.j2
+        dest: /usr/local/bin/appctl
+        owner: root
+        group: root
+        mode: "0755"
+
+    - name: Install explicitly configured app-state capture policies
+      ansible.builtin.include_tasks: capture.yml
+
+    - name: Prepare application datasets without changing share permissions
+      ansible.builtin.include_tasks: storage.yml
+      loop: "{{ apps_resolved }}"
+      loop_control:
+        loop_var: apps_app
+        label: "{{ apps_app.name }}"
+
+    - name: Deploy Jellyfin
+      ansible.builtin.include_tasks: deploy.yml
+      vars:
+        apps_app: "{{ apps_resolved | selectattr('name', 'equalto', 'jellyfin') | first }}"
+      when: "'jellyfin' in apps_active"
+      tags: [jellyfin]
+
+    - name: Deploy Prometheus
+      ansible.builtin.include_tasks: deploy.yml
+      vars:
+        apps_app: "{{ apps_resolved | selectattr('name', 'equalto', 'prometheus') | first }}"
+      when: "'prometheus' in apps_active"
+      tags: [prometheus]
+
+    - name: Deploy WebDAV
+      ansible.builtin.include_tasks: deploy.yml
+      vars:
+        apps_app: "{{ apps_resolved | selectattr('name', 'equalto', 'webdav') | first }}"
+      when: "'webdav' in apps_active"
+      tags: [webdav]
+
+    - name: Configure upstream exporters for the selected application accounts
+      ansible.builtin.include_tasks: exporters.yml
+      when: apps_exporters_enabled | bool

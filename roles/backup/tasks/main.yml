@@ -1,0 +1,127 @@
+---
+- name: Validate complete backup policy before any host changes
+  ansible.builtin.import_tasks: validate.yml
+
+- name: Install backup prerequisites
+  ansible.builtin.apt:
+    name: [bzip2, ca-certificates, coreutils, util-linux, cron]
+    state: present
+    install_recommends: false
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Create Restic artifact directory
+  ansible.builtin.file:
+    path: /var/cache/ansible-restic
+    state: directory
+    mode: "0755"
+
+- name: Download verified Restic archive
+  vars:
+    backup_archive: "restic_{{ backup_restic_version }}_linux_{{ backup_architectures[ansible_facts['architecture']] }}"
+    backup_release: "https://github.com/restic/restic/releases/download/v{{ backup_restic_version }}"
+  ansible.builtin.get_url:
+    url: "{{ backup_release }}/{{ backup_archive }}.bz2"
+    checksum: "sha256:{{ backup_release }}/SHA256SUMS"
+    dest: "/var/cache/ansible-restic/{{ backup_archive }}.bz2"
+    mode: "0644"
+  register: backup_download
+
+- name: Unpack Restic archive
+  ansible.builtin.command:
+    argv: [bzip2, --decompress, --keep, --force, "{{ backup_download.dest }}"]
+    creates: "{{ backup_download.dest | regex_replace('\\.bz2$', '') }}"
+
+- name: Install pinned Restic
+  ansible.builtin.copy:
+    src: "{{ backup_download.dest | regex_replace('\\.bz2$', '') }}"
+    dest: "{{ backup_restic_bin }}"
+    remote_src: true
+    mode: "0755"
+
+- name: Create storage metrics directory
+  ansible.builtin.file:
+    path: "{{ backup_metrics_dir }}"
+    state: directory
+    mode: "0755"
+
+- name: Create backup helper directory
+  ansible.builtin.file:
+    path: /usr/local/libexec
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Install immutable capture result validator
+  ansible.builtin.copy:
+    src: capture-result.py
+    dest: "{{ backup_capture_result_bin }}"
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Install offsite backup script
+  ansible.builtin.template:
+    dest: /usr/local/sbin/backup-to-b2
+    src: backup-script.sh.j2
+    owner: root
+    group: root
+    mode: "0700"
+  no_log: true
+
+- name: Install Restic systemd units
+  ansible.builtin.template:
+    src: "{{ item }}.j2"
+    dest: "/etc/systemd/system/{{ item }}"
+    mode: "0644"
+  loop: [restic.service, restic.timer]
+  notify: Reload NAS backup systemd
+
+- name: Remove legacy root backup cron entry
+  ansible.builtin.cron:
+    name: backup-to-b2
+    user: root
+    state: absent
+
+- name: Inspect root crontab for unreviewed duplicate backup scheduling
+  ansible.builtin.command:
+    argv: [crontab, -u, root, -l]
+  register: backup_root_crontab
+  changed_when: false
+  failed_when: backup_root_crontab.rc not in [0, 1]
+
+- name: Refuse duplicate legacy Restic scheduling
+  ansible.builtin.assert:
+    that:
+      - backup_root_crontab.stdout_lines | reject('match', '^\\s*#') |
+        select('search', '/usr/local/sbin/backup-to-b2') | list | length == 0
+    fail_msg: Remove the old root backup-to-b2 cron job before enabling the systemd timer.
+
+- name: Configure separate encrypted cloud sync
+  ansible.builtin.include_tasks: cloud-sync.yml
+  when: backup_cloud_sync_enabled | bool
+
+- name: Check for the optional cloud sync timer
+  ansible.builtin.stat:
+    path: /etc/systemd/system/cloud-sync.timer
+  register: backup_cloud_sync_timer
+  when: not backup_cloud_sync_enabled | bool
+
+- name: Disable cloud sync timer unless explicitly configured
+  ansible.builtin.systemd_service:
+    name: cloud-sync.timer
+    state: stopped
+    enabled: false
+  when:
+    - not backup_cloud_sync_enabled | bool
+    - backup_cloud_sync_timer.stat.exists
+
+- name: Apply NAS backup unit changes
+  ansible.builtin.meta: flush_handlers
+
+- name: Reconcile nonoverlapping Restic scheduling after readiness review
+  ansible.builtin.systemd_service:
+    name: restic.timer
+    state: "{{ 'started' if backup_timer_enabled | bool else 'stopped' }}"
+    enabled: "{{ backup_timer_enabled | bool }}"

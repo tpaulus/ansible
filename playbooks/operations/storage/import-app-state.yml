@@ -1,0 +1,23 @@
+---
+- name: Import offline application state
+  hosts: device_roles_storage
+  become: true
+  pre_tasks:
+    - name: Validate offline import approval
+      ansible.builtin.import_role:
+        name: apps
+        tasks_from: import-preflight
+
+  roles:
+    - role: config
+    - role: podman
+  tasks:
+    - name: Verify pool identity before restoring application state
+      ansible.builtin.import_role:
+        name: storage
+        tasks_from: identity
+
+    - name: Import confirmed offline application state
+      ansible.builtin.import_role:
+        name: apps
+        tasks_from: import

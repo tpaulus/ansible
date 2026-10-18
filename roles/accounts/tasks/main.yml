@@ -1,0 +1,59 @@
+---
+- name: Read existing account identities
+  ansible.builtin.getent:
+    database: "{{ item }}"
+  loop: [passwd, group]
+
+- name: Refuse conflicting group names or numeric IDs
+  ansible.builtin.assert:
+    that:
+      - item.key not in ansible_facts.getent_group or ansible_facts.getent_group[item.key][1] | int == item.value | int
+      - >-
+        ansible_facts.getent_group | dict2items | rejectattr('key', 'equalto', item.key)
+        | selectattr('value.1', 'equalto', item.value | string) | list | length == 0
+    fail_msg: "Resolve the group name/GID conflict for {{ item.key }} before migration."
+  loop: "{{ accounts_groups | dict2items }}"
+
+- name: Refuse conflicting user names or numeric IDs
+  ansible.builtin.assert:
+    that:
+      - item.key not in ansible_facts.getent_passwd or ansible_facts.getent_passwd[item.key][1] | int == item.value.uid | int
+      - >-
+        ansible_facts.getent_passwd | dict2items | rejectattr('key', 'equalto', item.key)
+        | selectattr('value.1', 'equalto', item.value.uid | string) | list | length == 0
+    fail_msg: "Resolve the user name/UID conflict for {{ item.key }} before migration."
+  loop: "{{ accounts_users | dict2items }}"
+
+- name: Ensure repository-managed groups
+  ansible.builtin.group:
+    name: "{{ item.key }}"
+    gid: "{{ item.value }}"
+    state: present
+  loop: "{{ accounts_groups | dict2items }}"
+
+- name: Ensure repository-managed non-login NAS accounts
+  ansible.builtin.user:
+    name: "{{ item.key }}"
+    uid: "{{ item.value.uid }}"
+    group: "{{ item.value.group }}"
+    groups: "{{ item.value.groups | default([]) }}"
+    append: true
+    shell: "{{ item.value.shell | default('/usr/sbin/nologin') }}"
+    home: "{{ item.value.home | default(omit) }}"
+    create_home: false
+    system: "{{ item.value.shell | default('/usr/sbin/nologin') == '/usr/sbin/nologin' }}"
+    password_lock: "{{ item.value.password_lock | default(omit) }}"
+    state: present
+  loop: "{{ accounts_users | dict2items }}"
+
+- name: Preserve existing administrator SSH metadata after identity migration
+  ansible.builtin.include_tasks: ssh.yml
+  loop: "{{ accounts_users | dict2items }}"
+  loop_control:
+    loop_var: accounts_ssh_user
+    label: "{{ accounts_ssh_user.key }}"
+  when: accounts_ssh_user.value.ssh_access | default(false) | bool
+
+- name: Manage declared share roots
+  ansible.builtin.import_tasks: roots.yml
+  tags: [shares]

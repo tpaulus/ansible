@@ -1,0 +1,64 @@
+---
+- name: Require a reviewed source for every selected imported mount
+  ansible.builtin.assert:
+    that:
+      - item.import_name in apps_clone_sources
+      - apps_clone_sources[item.import_name].source_dataset.split('/')[0] in storage_pools
+      - apps_clone_sources[item.import_name].source_dataset != item.dataset
+      - apps_clone_sources[item.import_name].source_path != item.path
+    fail_msg: Select only apps with complete reviewed clone sources; use staged copy import for WebDAV lock state.
+  loop: "{{ apps_resolved | map(attribute='mounts') | flatten | selectattr('require_import', 'defined') | selectattr('require_import') | list }}"
+  loop_control:
+    label: "{{ item.import_name }}"
+
+- name: Resolve only the selected reviewed clone sources
+  ansible.builtin.set_fact:
+    apps_clone_selected_sources: >-
+      {{ apps_resolved | map(attribute='mounts') | flatten
+         | selectattr('require_import', 'defined') | selectattr('require_import')
+         | map(attribute='import_name') | map('extract', apps_clone_sources) | list }}
+
+- name: Verify the source pool identity before mounting retired state
+  ansible.builtin.command:
+    argv: [zpool, get, -H, -o, value, guid, "{{ item.source_dataset.split('/')[0] }}"]
+  loop: "{{ apps_clone_selected_sources }}"
+  loop_control:
+    label: "{{ item.source_dataset }}"
+  register: apps_clone_pool
+  changed_when: false
+  failed_when: >-
+    apps_clone_pool.rc != 0
+    or apps_clone_pool.stdout | trim != storage_pools[item.source_dataset.split('/')[0]].guid | string
+
+- name: Inspect selected retired source mount state
+  ansible.builtin.command:
+    argv: [zfs, get, -H, -o, value, mounted, "{{ item.source_dataset }}"]
+  loop: "{{ apps_clone_selected_sources }}"
+  loop_control:
+    label: "{{ item.source_dataset }}"
+  register: apps_clone_mounts
+  changed_when: false
+
+- name: Mount only selected unmounted sources read-only for recovery
+  ansible.builtin.command:
+    argv: [zfs, mount, -o, ro, "{{ item.item.source_dataset }}"]
+  loop: "{{ apps_clone_mounts.results }}"
+  loop_control:
+    label: "{{ item.item.source_dataset }}"
+  when: item.stdout | trim == 'no'
+  changed_when: true
+
+- name: Install the protected snapshot and clone migration helper
+  ansible.builtin.copy:
+    src: clone-state.py
+    dest: /usr/local/libexec/clone-app-state
+    owner: root
+    group: root
+    mode: "0700"
+
+- name: Clone only explicitly selected stopped application state
+  ansible.builtin.include_tasks: clone-app.yml
+  loop: "{{ apps_resolved }}"
+  loop_control:
+    loop_var: apps_app
+    label: "{{ apps_app.name }}"

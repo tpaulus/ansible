@@ -1,0 +1,10 @@
+[Unit]
+Description=Hourly encrypted NAS B2 cloud sync
+
+[Timer]
+OnCalendar={{ backup_cloud_sync_calendar }}
+Persistent=true
+Unit=cloud-sync.service
+
+[Install]
+WantedBy=timers.target

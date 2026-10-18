@@ -1,0 +1,6 @@
+{% for pool in maintenance_pools %}
+nas_scrub_pool_expected{pool="{{ pool.name }}",guid="{{ pool.guid }}"} 1
+{% endfor %}
+{% for disk in maintenance_disks %}
+nas_smart_disk_expected{disk="{{ disk.id }}",role="{{ disk.role }}"} 1
+{% endfor %}

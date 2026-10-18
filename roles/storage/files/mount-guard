@@ -1,0 +1,18 @@
+#!/bin/sh
+set -eu
+
+if [ "$#" -eq 0 ] || [ "$(( $# % 2 ))" -ne 0 ]; then
+    echo "usage: mount-guard PATH DATASET [PATH DATASET ...]" >&2
+    exit 2
+fi
+
+while [ "$#" -gt 0 ]; do
+    path=$1
+    dataset=$2
+    if [ ! -d "$path" ] || [ "$(realpath -e -- "$path")" != "$path" ] ||
+        [ "$(findmnt --noheadings --list --notruncate --types zfs --target "$path" --output SOURCE)" != "$dataset" ]; then
+        echo "$path: expected mounted ZFS dataset $dataset" >&2
+        exit 1
+    fi
+    shift 2
+done

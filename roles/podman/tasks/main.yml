@@ -1,0 +1,181 @@
+---
+- name: Configure explicitly enabled rootless runtime
+  when: podman_enabled | bool
+  tags: [podman]
+  block:
+    - name: Require supported repository platform and reviewed service accounts
+      ansible.builtin.assert:
+        that:
+          - ansible_facts['distribution'] == 'Debian'
+          - ansible_facts['distribution_major_version'] | int == 13
+          - ansible_facts['architecture'] == 'x86_64'
+          - podman_accounts | length > 0
+        fail_msg: The signed Alvistack Podman repository requires Debian 13 amd64 and reviewed service accounts.
+
+    - name: Gather installed packages before migrating the runtime
+      ansible.builtin.package_facts:
+        manager: apt
+
+    - name: Install missing repository and rootless prerequisites
+      ansible.builtin.apt:
+        name: [ca-certificates, python3-debian, uidmap, passt, dbus-user-session, python3, acl]
+        state: present
+        update_cache: true
+        cache_valid_time: 3600
+        install_recommends: false
+        policy_rc_d: 101
+      when: >-
+        ['ca-certificates', 'python3-debian', 'uidmap', 'passt', 'dbus-user-session', 'python3', 'acl']
+        | difference(ansible_facts.packages.keys() | list) | length > 0
+
+    - name: Read the previous runtime version
+      ansible.builtin.command:
+        argv: [podman, --version]
+      register: podman_previous_version
+      changed_when: false
+      when: "'podman' in ansible_facts.packages"
+
+    - name: Stop and disable any existing rootful API
+      ansible.builtin.systemd_service:
+        name: "{{ item }}"
+        state: stopped
+        enabled: false
+      loop: [podman.service, podman.socket]
+      when: "'podman' in ansible_facts.packages"
+
+    - name: Keep the installer from activating the rootful API
+      ansible.builtin.systemd_service:
+        name: "{{ item }}"
+        masked: true
+      loop: [podman.service, podman.socket]
+
+    - name: Remove conflicting Debian runtime packages without purging configuration or data
+      ansible.builtin.apt:
+        name: golang-github-containers-common
+        state: absent
+        purge: false
+        autoremove: false
+        policy_rc_d: 101
+      when: "'golang-github-containers-common' in ansible_facts.packages"
+
+    - name: Restrict Alvistack package selection to the container runtime
+      ansible.builtin.copy:
+        dest: /etc/apt/preferences.d/podman-alvistack
+        owner: root
+        group: root
+        mode: "0644"
+        content: |
+          Package: *
+          Pin: release o=obs://build.opensuse.org/home:alvistack/Debian_13
+          Pin-Priority: -1
+
+          Package: podman buildah catatonit conmon containernetworking containernetworking-plugins
+            containers-common containers-storage crun podman-aardvark-dns podman-netavark skopeo
+          Pin: release o=obs://build.opensuse.org/home:alvistack/Debian_13
+          Pin-Priority: 501
+
+    - name: Install pinned Podman through the upstream Debian installer without rootful activation
+      ansible.builtin.include_role:
+        name: alvistack.podman
+        tasks_from: debian
+        vars_from: debian-13
+        apply:
+          module_defaults:
+            ansible.builtin.apt:
+              install_recommends: false
+              allow_change_held_packages: true
+              policy_rc_d: 101
+      vars:
+        _apt: # noqa: var-naming[no-role-prefix]
+          - name:
+              - "podman=100:{{ podman_version }}-{{ podman_package_revision }}"
+              - crun
+              - containers-common
+            state: fixed
+
+    - name: Keep unattended upgrades from changing the Podman pin
+      ansible.builtin.dpkg_selections:
+        name: podman
+        selection: hold
+
+    - name: Read the installed runtime version
+      ansible.builtin.command:
+        argv: [podman, --version]
+      register: podman_installed_version
+      changed_when: podman_installed_version.stdout != podman_previous_version.stdout | default('')
+      notify:
+        - Reload rootless Podman service definitions
+        - Restart active rootless Podman API services
+
+    - name: Require the pinned runtime version
+      ansible.builtin.assert:
+        that: podman_installed_version.stdout == 'podman version ' ~ podman_version
+        fail_msg: The installed Podman executable does not match the configured version.
+
+    - name: Create dedicated application groups
+      ansible.builtin.group:
+        name: "{{ item.name }}"
+        gid: "{{ item.gid }}"
+        system: true
+      loop: "{{ podman_accounts }}"
+      loop_control:
+        label: "{{ item.name }}"
+
+    - name: Create dedicated locked nonlogin application users
+      ansible.builtin.user:
+        name: "{{ item.name }}"
+        uid: "{{ item.uid }}"
+        group: "{{ item.name }}"
+        home: "{{ item.home }}"
+        shell: /usr/sbin/nologin
+        password_lock: true
+        system: true
+        create_home: true
+      loop: "{{ podman_accounts }}"
+      loop_control:
+        label: "{{ item.name }}"
+
+    - name: Assign reviewed subordinate user IDs
+      ansible.builtin.lineinfile:
+        path: /etc/subuid
+        regexp: "^{{ item.name }}:"
+        line: "{{ item.name }}:{{ item.subuid_start }}:{{ item.subid_count }}"
+        create: true
+        owner: root
+        group: root
+        mode: "0644"
+      loop: "{{ podman_accounts }}"
+      loop_control:
+        label: "{{ item.name }}"
+
+    - name: Assign reviewed subordinate group IDs
+      ansible.builtin.lineinfile:
+        path: /etc/subgid
+        regexp: "^{{ item.name }}:"
+        line: "{{ item.name }}:{{ item.subgid_start }}:{{ item.subid_count }}"
+        create: true
+        owner: root
+        group: root
+        mode: "0644"
+      loop: "{{ podman_accounts }}"
+      loop_control:
+        label: "{{ item.name }}"
+
+    - name: Enable persistent user managers without interactive sessions
+      ansible.builtin.command:
+        argv: [loginctl, enable-linger, "{{ item.name }}"]
+        creates: "/var/lib/systemd/linger/{{ item.name }}"
+      loop: "{{ podman_accounts }}"
+      loop_control:
+        label: "{{ item.name }}"
+
+    - name: Start dedicated user managers
+      ansible.builtin.systemd_service:
+        name: "user@{{ item.uid }}.service"
+        state: started
+      loop: "{{ podman_accounts }}"
+      loop_control:
+        label: "{{ item.name }}"
+
+    - name: Apply runtime upgrades before deploying applications and exporters
+      ansible.builtin.meta: flush_handlers

@@ -1,0 +1,47 @@
+---
+- name: Remove the legacy NAS contrib source format
+  ansible.builtin.file:
+    path: /etc/apt/sources.list.d/openzfs.list
+    state: absent
+  register: storage_legacy_repository
+
+- name: Install Debian source management support
+  ansible.builtin.apt:
+    name: python3-debian
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+    install_recommends: false
+    policy_rc_d: 101
+
+- name: Enable official Debian contrib repositories for OpenZFS
+  ansible.builtin.deb822_repository:
+    name: "{{ item.name }}"
+    types: [deb]
+    uris: "{{ item.uri }}"
+    suites: "{{ item.suites }}"
+    components: [contrib]
+    signed_by: /usr/share/keyrings/debian-archive-keyring.gpg
+    state: present
+  loop:
+    - name: openzfs
+      uri: https://deb.debian.org/debian
+      suites:
+        - "{{ ansible_facts['distribution_release'] }}"
+        - "{{ ansible_facts['distribution_release'] }}-updates"
+    - name: openzfs-security
+      uri: https://security.debian.org/debian-security
+      suites:
+        - "{{ ansible_facts['distribution_release'] }}-security"
+  loop_control:
+    label: "{{ item.name }}"
+  register: storage_apt_repositories
+
+- name: Install Debian OpenZFS packages without service auto-start or recommended mailers
+  ansible.builtin.apt:
+    name: "{{ storage_packages }}"
+    state: present
+    update_cache: true
+    cache_valid_time: "{{ 0 if storage_apt_repositories.changed or storage_legacy_repository.changed else 3600 }}"
+    install_recommends: false
+    policy_rc_d: 101

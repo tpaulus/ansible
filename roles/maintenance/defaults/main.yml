@@ -1,0 +1,8 @@
+---
+maintenance_disks: []
+maintenance_snapshots: []
+maintenance_pruning_approved: false
+maintenance_metrics_dir: "{{ node_exporter_textfile_dir | default('/var/lib/node_exporter') }}"
+maintenance_state_dir: /var/lib/nas-maintenance
+maintenance_mount_guard: /usr/local/libexec/mount-guard
+maintenance_smart_selftests: ""

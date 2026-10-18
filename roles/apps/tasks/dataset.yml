@@ -1,0 +1,78 @@
+---
+- name: Inspect the application dataset without importing or creating a pool
+  ansible.builtin.command:
+    argv: [zfs, list, -H, -o, name, "{{ apps_mount.dataset }}"]
+  register: apps_dataset
+  failed_when: apps_dataset.rc not in [0, 1]
+  changed_when: false
+  check_mode: false
+
+- name: Require explicit creation approval for absent application datasets
+  ansible.builtin.assert:
+    that: apps_dataset.rc == 0 or apps_create_datasets | bool
+    fail_msg: "Missing {{ apps_mount.dataset }}; creation requires apps_create_datasets=true."
+
+- name: Check the existing parent before creating a child
+  ansible.builtin.command:
+    argv:
+      - "{{ apps_mount_guard }}"
+      - "{{ apps_mount.path | dirname }}"
+      - "{{ apps_mount.dataset | dirname }}"
+  when: apps_dataset.rc != 0
+  changed_when: false
+  check_mode: false
+
+- name: Inspect the destination before creating an application dataset
+  ansible.builtin.stat:
+    path: "{{ apps_mount.path }}"
+  register: apps_new_dataset_path
+  when: apps_dataset.rc != 0
+
+- name: Refuse to cover an existing file or symlink with a dataset
+  ansible.builtin.assert:
+    that:
+      - >-
+        not apps_new_dataset_path.stat.exists
+        or (apps_new_dataset_path.stat.isdir | default(false)
+            and not apps_new_dataset_path.stat.islnk | default(false))
+  when: apps_dataset.rc != 0
+
+- name: Inspect only the immediate destination directory for existing content
+  ansible.builtin.command:
+    argv: [find, "{{ apps_mount.path }}", -mindepth, "1", -maxdepth, "1", -print, -quit]
+  register: apps_new_dataset_content
+  changed_when: false
+  when:
+    - apps_dataset.rc != 0
+    - apps_new_dataset_path.stat.exists
+
+- name: Refuse to hide existing application or backup files
+  ansible.builtin.assert:
+    that: apps_new_dataset_content.stdout | default('') | length == 0
+    fail_msg: Choose a new empty dataset path; existing directory data must never be hidden by creation.
+  when: apps_dataset.rc != 0
+
+- name: Create only the approved application child dataset
+  community.general.zfs:
+    name: "{{ apps_mount.dataset }}"
+    state: present
+    extra_zfs_properties:
+      mountpoint: "{{ apps_mount.path | zfs_mountpoint(apps_mount.dataset, storage_pools) }}"
+      acltype: posixacl
+      aclmode: discard
+      aclinherit: discard
+  when: apps_dataset.rc != 0
+
+- name: Verify the exact mounted dataset before touching its root directory
+  ansible.builtin.command:
+    argv: ["{{ apps_mount_guard }}", "{{ apps_mount.path }}", "{{ apps_mount.dataset }}"]
+  changed_when: false
+  check_mode: false
+
+- name: Set only the application dataset root ownership
+  ansible.builtin.file:
+    path: "{{ apps_mount.path }}"
+    state: directory
+    owner: "{{ apps_app.identity.name }}"
+    group: "{{ apps_app.identity.name }}"
+    mode: "0700"

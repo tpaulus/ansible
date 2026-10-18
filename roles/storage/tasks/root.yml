@@ -1,0 +1,78 @@
+---
+- name: Require an existing dataset or explicit creation
+  ansible.builtin.assert:
+    that: >-
+      storage_dataset_exists or (storage_root.create and storage_root.kind == 'dataset')
+    fail_msg: "Missing {{ storage_root.dataset }}; no implicit data adoption or directory fallback is allowed."
+
+- name: Verify parent filesystem before creation
+  ansible.builtin.command:
+    argv:
+      - /usr/local/libexec/mount-guard
+      - "{{ storage_root.path | dirname }}"
+      - "{{ storage_root.dataset | dirname if storage_root.kind == 'dataset' else storage_root.dataset }}"
+  changed_when: false
+  when: not storage_dataset_exists and not ansible_check_mode
+
+- name: Inspect the proposed new dataset mountpoint
+  ansible.builtin.stat:
+    path: "{{ storage_root.path }}"
+    follow: false
+  register: storage_new_mountpoint
+  when: not storage_dataset_exists
+
+- name: Refuse to hide an existing directory beneath a new dataset
+  ansible.builtin.assert:
+    that: not storage_new_mountpoint.stat.exists
+    fail_msg: >-
+      {{ storage_root.path }} already exists without the declared child dataset.
+      Preserve it as a directory in NetBox or perform an explicit data migration; do not overlay it.
+  when: not storage_dataset_exists
+
+- name: Create an explicitly approved new child dataset
+  community.general.zfs:
+    name: "{{ storage_root.dataset }}"
+    state: present
+    extra_zfs_properties: >-
+      {{ storage_root.properties | default({}) | combine(
+          {'mountpoint': storage_root.path | zfs_mountpoint(storage_root.dataset, storage_pools)}) }}
+  when: not storage_dataset_exists and storage_root.create and storage_root.kind == 'dataset'
+
+- name: Verify declared backing storage
+  ansible.builtin.command:
+    argv:
+      - /usr/local/libexec/mount-guard
+      - "{{ storage_root.path if storage_root.kind == 'dataset' else storage_root.path | dirname }}"
+      - "{{ storage_root.dataset }}"
+  changed_when: false
+  when: not ansible_check_mode
+
+- name: Reconcile approved properties without changing an existing mountpoint
+  community.general.zfs:
+    name: "{{ storage_root.dataset }}"
+    state: present
+    extra_zfs_properties: "{{ storage_root.properties }}"
+  when:
+    - storage_root.kind == 'dataset'
+    - storage_root.properties | default({}) | length > 0
+
+- name: Inspect the actual dataset ACL model
+  ansible.builtin.command:
+    argv: [zfs, get, -H, -o, value, acltype, "{{ storage_root.dataset }}"]
+  register: storage_acl
+  changed_when: false
+  check_mode: false
+  when: storage_dataset_exists
+
+- name: Refuse implicit NFSv4 ACL conversion during reconciliation
+  ansible.builtin.assert:
+    that: storage_acl.stdout | trim in ['off', 'posix', 'posixacl']
+    fail_msg: >-
+      {{ storage_root.dataset }} still uses NFSv4 ACLs. Rehearse and execute the explicit
+      metadata-backed permission conversion before routine provisioning changes ownership or modes.
+  when: storage_dataset_exists
+
+- name: Record the newly created backing dataset for subsequent roots
+  ansible.builtin.set_fact:
+    storage_dataset_names: "{{ storage_dataset_names + [storage_root.dataset] }}"
+  when: not storage_dataset_exists and not ansible_check_mode

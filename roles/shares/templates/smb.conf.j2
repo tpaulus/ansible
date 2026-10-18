@@ -1,0 +1,54 @@
+# {{ ansible_managed }}
+[global]
+    workgroup = {{ shares_workgroup }}
+    server string = {{ shares_server_string }}
+    security = user
+    map to guest = Never
+    server min protocol = SMB2_02
+    ntlm auth = ntlmv2-only
+    server multi channel support = yes
+    logging = systemd
+    load printers = no
+    disable spoolss = yes
+    fruit:aapl = yes
+    fruit:copyfile = yes
+    fruit:nfs_aces = no
+
+{% for share in config_resolved.smb %}
+[{{ share.name }}]
+    path = {{ share.path }}
+    guest ok = no
+    valid users = {{ share.valid_users | join(' ') }}
+    read only = yes
+{% if share.read_users %}
+    read list = {{ share.read_users | join(' ') }}
+{% endif %}
+{% if share.write_users %}
+    write list = {{ share.write_users | join(' ') }}
+{% endif %}
+    browseable = {{ 'yes' if share.browseable else 'no' }}
+    access based share enum = {{ 'yes' if share.abe else 'no' }}
+{% if share.hosts_allow %}
+    hosts allow = {{ share.hosts_allow | join(' ') }}
+    hosts deny = ALL
+{% endif %}
+    vfs objects = {% if share.shadow_copy %}shadow_copy2 {% endif %}fruit streams_xattr
+
+    fruit:metadata = stream
+    fruit:resource = stream
+{% if share.time_machine %}
+    fruit:time machine = yes
+{% endif %}
+    ea support = yes
+    store dos attributes = yes
+    inherit permissions = yes
+{% if share.shadow_copy %}
+    shadow:snapdir = .zfs/snapshot
+    shadow:sort = desc
+    shadow:format = {{ shares_shadow_format }}
+    shadow:snapprefix = {{ shares_shadow_prefix }}
+    shadow:delimiter = {{ shares_shadow_delimiter }}
+    shadow:localtime = yes
+{% endif %}
+
+{% endfor %}

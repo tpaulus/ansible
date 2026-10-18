@@ -1,0 +1,18 @@
+---
+backup_restic_version: "0.18.1"
+backup_restic_bin: /usr/bin/restic
+backup_metrics_dir: "{{ node_exporter_textfile_dir | default('/var/lib/node_exporter') }}"
+backup_sources: []
+backup_required_apps: [jellyfin, prometheus, webdav]
+backup_mount_guard: /usr/local/libexec/mount-guard
+backup_capture_result_bin: /usr/local/libexec/capture-result.py
+backup_lock: /run/lock/restic.lock
+backup_calendar: "*-*-* 00/3:00:00"
+backup_timer_enabled: true
+backup_pruning_approved: false
+backup_architectures:
+  x86_64: amd64
+  aarch64: arm64
+backup_cloud_sync_enabled: false
+backup_cloud_sync_deletion_approved: false
+backup_cloud_sync_calendar: hourly

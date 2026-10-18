@@ -1,0 +1,191 @@
+---
+- name: Require collector endpoint and monitoring sources
+  ansible.builtin.assert:
+    that:
+      - alloy_loki_url is match('^https://[A-Za-z0-9.-]+(?::[0-9]+)?/otlp/v1/logs$')
+      - alloy_metrics_sources | length > 0
+    fail_msg: Configure the HTTPS Loki OTLP endpoint and allowed monitoring networks.
+
+- name: Install signed repository and journal prerequisites
+  ansible.builtin.apt:
+    name:
+      - ca-certificates
+      - nftables
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Create collector configuration directories
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  loop:
+    - /etc/apt/keyrings
+    - /etc/alloy
+    - /etc/systemd/journald.conf.d
+    - /etc/systemd/system/alloy.service.d
+
+- name: Download verified Grafana repository signing key
+  ansible.builtin.get_url:
+    url: https://apt.grafana.com/gpg.key
+    dest: /etc/apt/keyrings/grafana-alloy.asc
+    checksum: "sha256:{{ alloy_repository_key_sha256 }}"
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Scope repository trust to the Grafana signing key
+  ansible.builtin.copy:
+    dest: /etc/apt/sources.list.d/grafana-alloy.sources
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      Types: deb
+      URIs: https://apt.grafana.com
+      Suites: stable
+      Components: main
+      Signed-By: /etc/apt/keyrings/grafana-alloy.asc {{ alloy_repository_key_fingerprint }}
+  register: alloy_repository
+
+- name: Prevent package scripts from restarting before configuration validation
+  ansible.builtin.copy:
+    dest: /etc/default/alloy
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      CONFIG_FILE="/etc/alloy/config.alloy"
+      CUSTOM_ARGS=""
+      RESTART_ON_UPGRADE=false
+
+- name: Install pinned signature and repository-checksum verified Alloy package
+  ansible.builtin.apt:
+    name: "alloy={{ alloy_version }}-{{ alloy_package_revision }}"
+    state: present
+    update_cache: "{{ alloy_repository.changed }}"
+    allow_downgrade: true
+    allow_change_held_packages: true
+    policy_rc_d: 101
+  notify: Restart NAS Alloy
+
+- name: Prevent the collector from changing its own configuration directory
+  ansible.builtin.file:
+    path: /etc/alloy
+    state: directory
+    owner: root
+    group: alloy
+    mode: "0750"
+
+- name: Keep unattended upgrades from changing the collector pin
+  ansible.builtin.dpkg_selections:
+    name: alloy
+    selection: hold
+
+- name: Grant access to system and all persistent per-user journals
+  ansible.builtin.user:
+    name: alloy
+    groups:
+      - adm
+      - systemd-journal
+    append: true
+  notify: Restart NAS Alloy
+
+- name: Persist collector cursors and OTLP queue on the boot filesystem
+  ansible.builtin.file:
+    path: /var/lib/alloy
+    state: directory
+    owner: alloy
+    group: alloy
+    mode: "0750"
+
+- name: Configure bounded persistent system and user journals
+  ansible.builtin.include_tasks: journal.yml
+
+- name: Configure restricted native collector management access
+  ansible.builtin.template:
+    src: metrics.nft.j2
+    dest: /etc/alloy/metrics.nft
+    owner: root
+    group: root
+    mode: "0644"
+    validate: /usr/sbin/nft --check --file %s
+  notify: Restart NAS Alloy firewall
+
+- name: Install collector management firewall service
+  ansible.builtin.template:
+    src: alloy-metrics-firewall.service.j2
+    dest: /etc/systemd/system/alloy-metrics-firewall.service
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart NAS Alloy firewall
+
+- name: Configure collector runtime and durability
+  ansible.builtin.template:
+    src: alloy.service.conf.j2
+    dest: /etc/systemd/system/alloy.service.d/60-ansible.conf
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart NAS Alloy
+
+- name: Install a journal heartbeat independent of NAS applications
+  ansible.builtin.template:
+    src: "{{ item }}.j2"
+    dest: "/etc/systemd/system/{{ item }}"
+    owner: root
+    group: root
+    mode: "0644"
+  loop:
+    - alloy-heartbeat.service
+    - alloy-heartbeat.timer
+  notify: Restart NAS Alloy heartbeat
+
+- name: Validate configuration before replacing the running collector configuration
+  ansible.builtin.template:
+    src: config.alloy.j2
+    dest: /etc/alloy/config.alloy
+    owner: root
+    group: alloy
+    mode: "0640"
+    validate: /usr/bin/alloy validate --stability.level=public-preview %s
+  notify: Restart NAS Alloy
+
+- name: Enable native collector management firewall
+  ansible.builtin.systemd_service:
+    name: alloy-metrics-firewall.service
+    daemon_reload: true
+    enabled: true
+    state: started
+
+- name: Apply validated journal and collector changes
+  ansible.builtin.meta: flush_handlers
+
+- name: Flush early-boot runtime journal entries into persistent storage
+  ansible.builtin.command: journalctl --flush
+  changed_when: false
+
+- name: Verify collector can read persistent system and per-user journals
+  become: true
+  become_user: alloy
+  ansible.builtin.command: journalctl --directory=/var/log/journal --no-pager --quiet --lines=1 --output=json
+  register: alloy_journal_access
+  changed_when: false
+  failed_when: alloy_journal_access.rc != 0 or alloy_journal_access.stdout | trim | length == 0
+  no_log: true
+
+- name: Enable native NAS collector independently of data pools
+  ansible.builtin.systemd_service:
+    name: alloy.service
+    enabled: true
+    state: started
+
+- name: Enable native journal heartbeat independently of data pools
+  ansible.builtin.systemd_service:
+    name: alloy-heartbeat.timer
+    enabled: true
+    state: started

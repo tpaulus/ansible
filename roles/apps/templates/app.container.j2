@@ -1,0 +1,57 @@
+# {{ ansible_managed }}
+[Unit]
+Description=NAS {{ apps_app.name }} (rootless)
+StartLimitIntervalSec=0
+
+[Container]
+Image={{ apps_app.runtime_image }}
+ContainerName={{ apps_app.name }}
+LogDriver=journald
+UserNS=keep-id:uid={{ apps_app.container_uid }},gid={{ apps_app.container_gid }}
+User={{ apps_app.container_uid }}
+Group={{ apps_app.container_gid }}
+Network={{ apps_app.network }}
+Pull=never
+{% for port in apps_app.ports | default([]) %}
+PublishPort={{ port }}
+{% endfor %}
+{% for mount in apps_app.mounts %}
+Volume={{ mount.path }}:{{ mount.target }}:{{ mount.access }}
+{% endfor %}
+{% if apps_app.name == 'webdav' %}
+Volume={{ apps_app.identity.home }}/.config/apps/httpd.conf:/usr/local/apache2/conf/httpd.conf:ro
+Volume={{ apps_app.identity.home }}/.config/apps/webdavhtbasic:/etc/apache2/webdavhtbasic:ro
+{% endif %}
+{% for key, value in apps_app.environment | default({}) | dictsort %}
+Environment="{{ key }}={{ value }}"
+{% endfor %}
+{% if apps_app.name == 'jellyfin' %}
+AddDevice={{ apps_gpu_realpath.stdout }}:/dev/dri/renderD128:rw
+PodmanArgs=--runtime=crun --stop-timeout=150 --group-add=keep-groups
+{% else %}
+PodmanArgs=--runtime=crun --stop-timeout=150
+{% endif %}
+{% if apps_app.entrypoint is defined %}
+Entrypoint={{ apps_app.entrypoint }}
+{% endif %}
+{% if apps_app.command is defined %}
+Exec={{ apps_app.command | join(' ') }}
+{% endif %}
+HealthCmd={{ apps_app.health_cmd }}
+HealthInterval=30s
+HealthTimeout=5s
+HealthRetries=5
+HealthStartPeriod=120s
+HealthOnFailure=kill
+
+[Service]
+ExecStartPre={{ apps_mount_guard }}{% for mount in apps_app.mounts %} "{{ mount.path }}" "{{ mount.dataset }}"{% endfor %}
+
+Restart=on-failure
+RestartSec=30
+TimeoutStartSec=900
+TimeoutStopSec=180
+MemoryMax={{ apps_app.memory_max | default('infinity') }}
+
+[Install]
+WantedBy=default.target

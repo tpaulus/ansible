@@ -1,0 +1,15 @@
+---
+- name: Validate NetBox shares without changing the NAS
+  hosts: device_roles_storage
+  gather_facts: false
+  tasks:
+    - name: Validate the share schema and repository references
+      ansible.builtin.import_role:
+        name: config
+
+    - name: Show the validated share inventory
+      ansible.builtin.debug:
+        msg:
+          datasets: "{{ config_resolved.datasets.keys() | list }}"
+          smb: "{{ config_resolved.smb | map(attribute='name') | list }}"
+          nfs: "{{ config_resolved.nfs | map(attribute='key') | list }}"

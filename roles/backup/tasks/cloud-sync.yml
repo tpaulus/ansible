@@ -1,0 +1,53 @@
+---
+- name: Install Debian rclone
+  ansible.builtin.apt:
+    name: rclone
+    state: present
+    install_recommends: false
+
+- name: Create restricted cloud sync configuration directory
+  ansible.builtin.file:
+    path: /etc/backup
+    state: directory
+    owner: root
+    group: root
+    mode: "0700"
+
+- name: Install cloud sync credentials
+  ansible.builtin.template:
+    src: rclone.conf.j2
+    dest: /etc/backup/rclone.conf
+    mode: "0600"
+    owner: root
+    group: root
+  no_log: true
+
+- name: Install cloud sync filters
+  ansible.builtin.copy:
+    content: "{{ backup_cloud_sync_filters | join('\n') }}\n"
+    dest: /etc/backup/cloud-sync.filters
+    mode: "0600"
+
+- name: Install separate cloud sync script
+  ansible.builtin.template:
+    src: cloud-sync.sh.j2
+    dest: /usr/local/sbin/cloud-sync
+    mode: "0700"
+  no_log: true
+
+- name: Install cloud sync systemd units
+  ansible.builtin.template:
+    src: "{{ item }}.j2"
+    dest: "/etc/systemd/system/{{ item }}"
+    mode: "0644"
+  loop: [cloud-sync.service, cloud-sync.timer]
+  notify: Reload NAS backup systemd
+
+- name: Apply cloud sync unit changes
+  ansible.builtin.meta: flush_handlers
+
+- name: Enable separate hourly cloud sync timer
+  ansible.builtin.systemd_service:
+    name: cloud-sync.timer
+    state: started
+    enabled: true

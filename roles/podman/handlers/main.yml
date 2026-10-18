@@ -1,0 +1,28 @@
+---
+- name: Reload rootless Podman service definitions
+  become: true
+  become_user: "{{ item.name }}"
+  environment:
+    HOME: "{{ item.home }}"
+    XDG_RUNTIME_DIR: "/run/user/{{ item.uid }}"
+    DBUS_SESSION_BUS_ADDRESS: "unix:path=/run/user/{{ item.uid }}/bus"
+  ansible.builtin.systemd_service:
+    scope: user
+    daemon_reload: true
+  loop: "{{ podman_accounts }}"
+  loop_control:
+    label: "{{ item.name }}"
+
+- name: Restart active rootless Podman API services
+  become: true
+  become_user: "{{ item.name }}"
+  environment:
+    HOME: "{{ item.home }}"
+    XDG_RUNTIME_DIR: "/run/user/{{ item.uid }}"
+    DBUS_SESSION_BUS_ADDRESS: "unix:path=/run/user/{{ item.uid }}/bus"
+  ansible.builtin.command:
+    argv: [systemctl, --user, try-restart, podman.service, podman.socket]
+  changed_when: true
+  loop: "{{ podman_accounts }}"
+  loop_control:
+    label: "{{ item.name }}"

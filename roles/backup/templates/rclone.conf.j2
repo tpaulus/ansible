@@ -1,0 +1,12 @@
+[b2]
+type = b2
+account = {{ backup_cloud_sync_b2_account_id }}
+key = {{ backup_cloud_sync_b2_account_key }}
+
+[encrypted]
+type = crypt
+remote = b2:{{ backup_cloud_sync_bucket }}/{{ backup_cloud_sync_remote_path }}
+filename_encryption = off
+directory_name_encryption = false
+password = {{ backup_cloud_sync_crypt_password }}
+password2 = {{ backup_cloud_sync_crypt_salt }}

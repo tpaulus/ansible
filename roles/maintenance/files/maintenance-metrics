@@ -1,0 +1,8 @@
+#!/bin/sh
+scrub=0
+smart=0
+storage=0
+/usr/local/libexec/scrub-metrics.py /etc/maintenance/collectors.json || scrub=$?
+/usr/local/libexec/smart-metrics.py /etc/maintenance/collectors.json || smart=$?
+/usr/local/libexec/storage-metrics.py /etc/maintenance/collectors.json || storage=$?
+[ "$scrub" -eq 0 ] && [ "$smart" -eq 0 ] && [ "$storage" -eq 0 ]

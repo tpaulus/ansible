@@ -1,0 +1,123 @@
+---
+- name: Install Debian file services and discovery
+  ansible.builtin.apt:
+    name: [samba, samba-vfs-modules, smbclient, nfs-kernel-server, avahi-daemon]
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+    policy_rc_d: 101
+
+- name: Remove Windows-only WSD discovery
+  ansible.builtin.apt:
+    name: wsdd2
+    state: absent
+
+- name: Verify all backing mounts before activating shares
+  ansible.builtin.command:
+    argv: [/usr/local/libexec/mount-guard, "{{ item.path }}", "{{ item.dataset }}"]
+  loop: "{{ config_resolved.mounts }}"
+  changed_when: false
+  when: not ansible_check_mode
+
+- name: Require provisioned SMB password entries
+  ansible.builtin.command:
+    argv: [pdbedit, -L, -u, "{{ item }}"]
+  loop: "{{ config_resolved.smb | map(attribute='valid_users') | flatten | unique }}"
+  changed_when: false
+  when: not ansible_check_mode
+
+- name: Read the current Samba SID
+  ansible.builtin.command:
+    argv: [net, getlocalsid]
+  register: shares_current_sid
+  changed_when: false
+  when: shares_sid | length > 0
+
+- name: Set a deliberately retained Samba SID
+  ansible.builtin.command:
+    argv: [net, setlocalsid, "{{ shares_sid }}"]
+  when:
+    - shares_sid | length > 0
+    - not shares_current_sid.stdout.endswith(shares_sid)
+  changed_when: true
+
+- name: Validate and install complete Samba configuration
+  ansible.builtin.template:
+    src: smb.conf.j2
+    dest: /etc/samba/smb.conf
+    mode: "0644"
+    validate: /usr/bin/testparm -s %s
+  notify: Restart NAS Samba
+
+- name: Create managed export and service guard directories
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    mode: "0755"
+  loop:
+    - /etc/exports.d
+    - /etc/nfs.conf.d
+    - /etc/systemd/system/smbd.service.d
+    - /etc/systemd/system/nfs-server.service.d
+    - /etc/avahi/services
+
+- name: Validate and install only NAS-owned exports
+  ansible.builtin.template:
+    src: exports.j2
+    dest: /etc/exports.d/ansible.exports
+    mode: "0644"
+  notify: Reload NAS exports
+
+- name: Configure requested NFS protocol versions
+  ansible.builtin.copy:
+    content: |
+      [nfsd]
+      vers3={{ 'y' if 3 in config_resolved.protocols else 'n' }}
+      vers4={{ 'y' if 4 in config_resolved.protocols else 'n' }}
+    dest: /etc/nfs.conf.d/ansible.conf
+    mode: "0644"
+  notify: Restart NAS NFS
+
+- name: Resolve actual dataset mount unit names
+  ansible.builtin.command:
+    argv: [systemd-escape, --path, --suffix=mount, "{{ item.path }}"]
+  loop: "{{ config_resolved.roots | selectattr('kind', 'equalto', 'dataset') }}"
+  register: shares_mount_units
+  changed_when: false
+  check_mode: false
+
+- name: Install mount checks on both file service startup paths
+  ansible.builtin.template:
+    src: storage-guard.conf.j2
+    dest: "/etc/systemd/system/{{ item }}.service.d/storage-guard.conf"
+    mode: "0644"
+  loop: [smbd, nfs-server]
+  notify:
+    - Reload NAS systemd
+    - Restart NAS Samba
+    - Restart NAS NFS
+
+- name: Install the guard dependency before package export pre-start commands
+  ansible.builtin.template:
+    src: storage-ready.service.j2
+    dest: /etc/systemd/system/shares-ready.service
+    mode: "0644"
+  notify:
+    - Reload NAS systemd
+    - Restart NAS Samba
+    - Restart NAS NFS
+
+- name: Advertise SMB and TimeMachine through Avahi
+  ansible.builtin.template:
+    src: smb.service.j2
+    dest: /etc/avahi/services/ansible-smb.service
+    mode: "0644"
+  notify: Restart NAS Avahi
+
+- name: Enable NAS file and discovery services
+  ansible.builtin.systemd_service:
+    name: "{{ item }}"
+    state: started
+    enabled: true
+    daemon_reload: true
+  loop: [smbd, nfs-server, avahi-daemon]

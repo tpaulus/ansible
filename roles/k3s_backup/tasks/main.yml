@@ -1,4 +1,9 @@
 ---
+- name: Resolve the authoritative NetBox backup export without mutating the NAS
+  ansible.builtin.set_fact:
+    k3s_backup_nas_export: >-
+      {{ hostvars | nfs_consumer(groups['device_roles_storage'] | default([]), groups, 'k3s-etcd', inventory_hostname) }}
+
 - name: Install backup dependencies
   ansible.builtin.apt:
     name: [nfs-common, rsync, logrotate]

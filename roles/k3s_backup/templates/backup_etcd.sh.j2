@@ -12,7 +12,7 @@ cleanup() {
 }
 trap cleanup EXIT
 
-mount -t nfs {{ (k3s_backup_server ~ ':' ~ k3s_backup_share) | quote }} "$mount_dir"
+mount -t nfs {{ (k3s_backup_nas_export.server ~ ':' ~ k3s_backup_nas_export.path) | quote }} "$mount_dir"
 destination="$mount_dir"/{{ ansible_facts['hostname'] | quote }}
 mkdir -p "$destination"
 rsync -rlt --partial --delete {{ (k3s_backup_source ~ '/') | quote }} "$destination/"

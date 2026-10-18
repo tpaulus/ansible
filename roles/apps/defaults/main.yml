@@ -1,0 +1,22 @@
+---
+apps_enabled: false
+apps_exporters_enabled: false
+apps_exporter_ports: {}
+apps_exporter_metrics_sources: []
+apps_definitions: {}
+apps_accounts: []
+apps_selected: [jellyfin, prometheus, webdav]
+apps_create_datasets: false
+apps_mount_guard: /usr/local/libexec/mount-guard
+apps_import_confirm: ""
+apps_import_sources_stopped: false
+apps_import_backups_verified: false
+apps_import_method: copy
+apps_clone_migration: ""
+apps_clone_sources: {}
+apps_import_source_root: ""
+apps_import_source_dataset: ""
+apps_webdav_htpasswd: ""
+apps_gpu_packages: [firmware-intel-graphics, intel-gpu-tools]
+apps_captures: {}
+apps_capture_parents: []

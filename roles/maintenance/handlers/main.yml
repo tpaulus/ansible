@@ -1,0 +1,9 @@
+---
+- name: Reload NAS maintenance systemd
+  ansible.builtin.systemd_service:
+    daemon_reload: true
+
+- name: Restart NAS smartd
+  ansible.builtin.systemd_service:
+    name: smartmontools
+    state: restarted

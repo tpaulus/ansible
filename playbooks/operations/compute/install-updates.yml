@@ -31,14 +31,14 @@
       ansible.builtin.apt:
         update_cache: true
 
-    - name: Preview packages requiring scheduler maintenance # noqa: command-instead-of-module
-      ansible.builtin.command:
-        argv: [apt-get, --simulate, dist-upgrade]
+    - name: Preview packages requiring scheduler maintenance
+      ansible.builtin.apt:
+        upgrade: full
+      check_mode: true
       register: update_package_plan
       environment:
         LC_ALL: C
       changed_when: false
-      check_mode: false
 
     - name: Upgrade system with service restoration
       block:

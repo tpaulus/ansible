@@ -6,6 +6,7 @@ nut_group: "{{ 'uucp' if ansible_facts['os_family'] == 'FreeBSD' else 'nut' }}"
 nut_shutdown_delay: "{{ 360 if nut_mode == 'primary' else 240 }}"
 nut_upssched_enabled: true
 nut_timed_shutdown_enabled: false
+nut_usb_devices: []
 nut_upssched_binary: "{{ '/usr/local/sbin/upssched' if ansible_facts['os_family'] == 'FreeBSD' else '/usr/sbin/upssched' }}"
 nut_services: >-
   {{ (['nut', 'nut_upsmon'] if nut_mode == 'primary' else ['nut_upsmon'])

@@ -1,0 +1,26 @@
+# {{ ansible_managed }}
+[Unit]
+Description=Podman metrics for {{ apps_exporter_account.name }}
+Requires=podman.socket
+After=podman.socket
+
+[Container]
+Image={{ apps_exporter_image }}
+ContainerName=podman-exporter
+Pull=never
+Network=host
+LogDriver=journald
+UserNS=keep-id:uid=65534,gid=65534
+User=65534
+Group=65534
+Environment=CONTAINER_HOST=unix:///run/podman/podman.sock
+Volume=/run/user/{{ apps_exporter_account.uid }}/podman/podman.sock:/run/podman/podman.sock:ro
+Exec=--web.listen-address=0.0.0.0:{{ apps_exporter_ports[apps_exporter_account.name] }} --collector.enhance-metrics --collector.cache-duration=15s
+
+[Service]
+Restart=on-failure
+RestartSec=10
+TimeoutStartSec=120
+
+[Install]
+WantedBy=default.target

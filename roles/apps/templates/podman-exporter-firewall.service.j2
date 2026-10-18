@@ -1,0 +1,14 @@
+# {{ ansible_managed }}
+[Unit]
+Description=Restrict Podman exporter metrics to central Prometheus
+After=network-pre.target nftables.service
+Before=systemd-user-sessions.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/sbin/nft --file /etc/podman-exporter.nft
+ExecReload=/usr/sbin/nft --file /etc/podman-exporter.nft
+
+[Install]
+WantedBy=multi-user.target

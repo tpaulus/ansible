@@ -1,0 +1,103 @@
+---
+- name: Remove legacy prefixed service files
+  hosts: device_roles_storage
+  become: true
+  pre_tasks:
+    - name: Require one explicitly selected Debian host
+      ansible.builtin.assert:
+        that:
+          - ansible_limit | default('') | length > 0
+          - ansible_play_hosts_all | length == 1
+          - ansible_facts['distribution'] == 'Debian'
+        fail_msg: Run this one-time migration with --limit HOSTNAME.
+
+  tasks:
+    - name: Read installed legacy system units
+      ansible.builtin.command:
+        argv:
+          - systemctl
+          - list-unit-files
+          - --no-legend
+          - --no-pager
+          - nas-restic.service
+          - nas-restic.timer
+          - nas-cloud-sync.service
+          - nas-cloud-sync.timer
+          - nas-maintenance-metrics.service
+          - nas-maintenance-metrics.timer
+          - nas-alloy-heartbeat.service
+          - nas-alloy-heartbeat.timer
+          - nas-shares-ready.service
+      register: migration_legacy_units
+      changed_when: false
+      check_mode: false
+
+    - name: Stop and disable legacy timers before their services
+      ansible.builtin.systemd_service:
+        name: "{{ item.split()[0] }}"
+        state: stopped
+        enabled: false
+      loop: >-
+        {{ (migration_legacy_units.stdout_lines | select('search', '[.]timer ') | list)
+           + (migration_legacy_units.stdout_lines | select('search', '[.]service ') | list) }}
+      loop_control:
+        label: "{{ item.split()[0] }}"
+
+    - name: Remove legacy application units and generated configuration
+      ansible.builtin.include_role:
+        name: apps
+        tasks_from: migrate-prefixes
+
+    - name: Remove only legacy managed configuration and helpers
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - /etc/apt/sources.list.d/nas-openzfs.list
+        - /etc/apt/sources.list.d/nas-openzfs.sources
+        - /etc/apt/sources.list.d/nas-openzfs-security.sources
+        - /etc/exports.d/ansible-nas.exports
+        - /etc/nfs.conf.d/ansible-nas.conf
+        - /etc/systemd/system/nas-restic.service
+        - /etc/systemd/system/nas-restic.timer
+        - /etc/systemd/system/nas-cloud-sync.service
+        - /etc/systemd/system/nas-cloud-sync.timer
+        - /etc/systemd/system/nas-maintenance-metrics.service
+        - /etc/systemd/system/nas-maintenance-metrics.timer
+        - /etc/systemd/system/nas-alloy-heartbeat.service
+        - /etc/systemd/system/nas-alloy-heartbeat.timer
+        - /etc/systemd/system/nas-shares-ready.service
+        - /etc/systemd/system/smbd.service.d/storage-guard.conf
+        - /etc/systemd/system/nfs-server.service.d/storage-guard.conf
+        - /etc/systemd/system/sanoid.service.d/nas-mounts.conf
+        - /etc/systemd/system/sanoid-prune.service.d/nas-mounts.conf
+        - /etc/systemd/system/alloy.service.d/60-nas.conf
+        - /etc/systemd/journald.conf.d/60-nas-alloy.conf
+        - /etc/nas
+        - /etc/nas-apps
+        - /etc/nas-backup
+        - /etc/nas-maintenance
+        - /usr/local/libexec/nas-mount-guard
+        - /usr/local/libexec/nas-app-state-guard
+        - /usr/local/libexec/nas-prometheus-config-guard
+        - /usr/local/libexec/nas-validate-identities
+        - /usr/local/libexec/nas-validate-exports
+        - /usr/local/libexec/nas-import-app-state
+        - /usr/local/libexec/nas-clone-app-state
+        - /usr/local/libexec/nas-capture-result.py
+        - /usr/local/libexec/nas-scrub-metrics.py
+        - /usr/local/libexec/nas-smart-metrics.py
+        - /usr/local/libexec/nas-maintenance-metrics
+        - /usr/local/sbin/capture-nas-app
+        - /usr/local/sbin/nas-cloud-sync
+        - /var/cache/nas-restic
+        - /run/lock/nas-restic.lock
+        - /run/lock/nas-cloud-sync.lock
+        - /run/lock/ansible-nas-reconcile
+
+    - name: Reload systemd after removing old unit sources
+      ansible.builtin.systemd_service:
+        daemon_reload: true
+
+- name: Install and start the unprefixed replacements
+  ansible.builtin.import_playbook: ../../provision/storage.yml

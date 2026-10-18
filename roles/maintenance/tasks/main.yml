@@ -1,0 +1,181 @@
+---
+- name: Initialize derived maintenance pool identities
+  ansible.builtin.set_fact:
+    maintenance_pools: []
+
+- name: Derive maintenance pool identities from approved storage policy
+  ansible.builtin.set_fact:
+    maintenance_pools: "{{ maintenance_pools + [{'name': item.key, 'guid': item.value.guid | string}] }}"
+  loop: "{{ storage_pools | dict2items }}"
+
+- name: Verify snapshot backing storage before maintenance changes
+  ansible.builtin.command:
+    argv:
+      - "{{ maintenance_mount_guard }}"
+      - "{{ config_resolved.datasets[item.dataset_key].path }}"
+      - "{{ config_resolved.datasets[item.dataset_key].dataset }}"
+  loop: "{{ maintenance_snapshots }}"
+  changed_when: false
+  when: not ansible_check_mode
+
+- name: Install packaged filesystem and disk maintenance
+  ansible.builtin.apt:
+    name: [cron, sanoid, smartmontools, zfsutils-linux, python3]
+    state: present
+    install_recommends: false
+    update_cache: true
+    cache_valid_time: 3600
+    policy_rc_d: 101
+
+- name: Find instantiated alternative packaged scrub timers
+  ansible.builtin.command:
+    argv: [systemctl, list-units, --all, --full, --plain, --no-legend, "zfs-scrub-*@*.timer"]
+  register: maintenance_scrub_timers
+  changed_when: false
+
+- name: Stop instantiated scrub timers to avoid duplicate scheduling
+  ansible.builtin.systemd_service:
+    name: "{{ item.split()[0] }}"
+    state: stopped
+    enabled: false
+  loop: "{{ maintenance_scrub_timers.stdout_lines }}"
+
+- name: Mask optional scrub timer templates in favor of packaged cron default
+  ansible.builtin.systemd_service:
+    name: "{{ item }}"
+    masked: true
+    enabled: false
+  loop: [zfs-scrub-monthly@.timer, zfs-scrub-weekly@.timer]
+
+- name: Read expected pools scrub inclusion
+  ansible.builtin.command:
+    argv: [zfs, get, -H, -o, value, "org.debian:periodic-scrub", "{{ item.name }}"]
+  loop: "{{ maintenance_pools }}"
+  register: maintenance_scrub_properties
+  changed_when: false
+
+- name: Include expected pools in Debian periodic scrub
+  ansible.builtin.command:
+    argv: [zfs, set, "org.debian:periodic-scrub=enable", "{{ item.item.name }}"]
+  loop: "{{ maintenance_scrub_properties.results }}"
+  when: item.stdout != 'enable'
+  changed_when: true
+
+- name: Enable packaged cron scheduler
+  ansible.builtin.systemd_service:
+    name: cron
+    state: started
+    enabled: true
+
+- name: Check whether ZED is installed
+  ansible.builtin.stat:
+    path: /etc/zfs/zed.d
+  register: maintenance_zed_directory
+
+- name: Suppress ZED email delivery without disabling event logging
+  ansible.builtin.lineinfile:
+    path: /etc/zfs/zed.d/zed.rc
+    regexp: "^#?{{ item.key }}="
+    line: '{{ item.key }}="{{ item.value }}"'
+    create: true
+    mode: "0644"
+  loop:
+    - {key: ZED_EMAIL_PROG, value: /bin/false}
+    - {key: ZED_EMAIL_ADDR, value: ""}
+    - {key: ZED_EMAIL, value: ""}
+  when: maintenance_zed_directory.stat.isdir | default(false)
+
+- name: Create NAS maintenance directories
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "{{ item.mode }}"
+  loop:
+    - {path: /etc/maintenance, mode: "0755"}
+    - {path: /usr/local/libexec, mode: "0755"}
+    - {path: /etc/sanoid, mode: "0755"}
+    - {path: /etc/systemd/system/sanoid.service.d, mode: "0755"}
+    - {path: /etc/systemd/system/sanoid-prune.service.d, mode: "0755"}
+    - {path: "{{ maintenance_state_dir }}", mode: "0700"}
+    - {path: "{{ maintenance_metrics_dir }}", mode: "0755"}
+
+- name: Install Sanoid policy preserving legacy auto snapshots
+  ansible.builtin.template:
+    src: sanoid.conf.j2
+    dest: /etc/sanoid/sanoid.conf
+    mode: "0644"
+
+- name: Guard packaged Sanoid snapshot and prune services against missing datasets
+  ansible.builtin.template:
+    src: sanoid-guard.conf.j2
+    dest: "/etc/systemd/system/{{ item }}.service.d/mounts.conf"
+    mode: "0644"
+  loop: [sanoid, sanoid-prune]
+  notify: Reload NAS maintenance systemd
+
+- name: Install smartd logging-only configuration
+  ansible.builtin.template:
+    src: smartd.conf.j2
+    dest: /etc/smartd.conf
+    mode: "0644"
+    validate: /usr/sbin/smartd -c %s -q onecheck
+  notify: Restart NAS smartd
+
+- name: Install maintenance collectors
+  ansible.builtin.copy:
+    src: "{{ item }}"
+    dest: "/usr/local/libexec/{{ item }}"
+    mode: "0755"
+  loop: [scrub-metrics.py, smart-metrics.py, storage-metrics.py, maintenance-metrics]
+
+- name: Install expected maintenance policy
+  ansible.builtin.copy:
+    content: >-
+      {{ {'pools': maintenance_pools, 'disks': maintenance_disks,
+          'state_dir': maintenance_state_dir, 'metrics_dir': maintenance_metrics_dir} | to_nice_json }}
+    dest: /etc/maintenance/collectors.json
+    mode: "0644"
+
+- name: Install independent expected inventory counts
+  ansible.builtin.template:
+    src: inventory.prom.j2
+    dest: "{{ maintenance_metrics_dir }}/nas_inventory.prom"
+    mode: "0644"
+
+- name: Install collector-independent expectations
+  ansible.builtin.template:
+    src: expected.prom.j2
+    dest: "{{ maintenance_metrics_dir }}/nas_expected.prom"
+    mode: "0644"
+
+- name: Install maintenance collection systemd units
+  ansible.builtin.template:
+    src: "{{ item }}.j2"
+    dest: "/etc/systemd/system/{{ item }}"
+    mode: "0644"
+  loop: [maintenance-metrics.service, maintenance-metrics.timer]
+  notify: Reload NAS maintenance systemd
+
+- name: Unmask SMART monitoring only after installing the logging-only configuration
+  ansible.builtin.systemd_service:
+    name: "{{ item }}"
+    masked: false
+  loop: [smartmontools, smartd]
+
+- name: Apply maintenance unit changes
+  ansible.builtin.meta: flush_handlers
+
+- name: Start log-only SMART monitoring
+  ansible.builtin.systemd_service:
+    name: smartmontools
+    state: started
+    enabled: true
+
+- name: Enable packaged Sanoid timer and maintenance telemetry timer
+  ansible.builtin.systemd_service:
+    name: "{{ item }}"
+    state: started
+    enabled: true
+  loop: [sanoid.timer, maintenance-metrics.timer]

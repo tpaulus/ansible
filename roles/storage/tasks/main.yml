@@ -1,0 +1,48 @@
+---
+- name: Install Debian storage prerequisites
+  ansible.builtin.include_tasks: packages.yml
+
+- name: Install shared mount guard directory
+  ansible.builtin.file:
+    path: /usr/local/libexec
+    state: directory
+    mode: "0755"
+
+- name: Install runtime ZFS mount guard
+  ansible.builtin.copy:
+    src: mount-guard
+    dest: /usr/local/libexec/mount-guard
+    mode: "0755"
+
+- name: Check approved pools
+  ansible.builtin.import_tasks: identity.yml
+
+- name: Check pool backing mounts
+  ansible.builtin.command:
+    argv: [/usr/local/libexec/mount-guard, "{{ item.value.mountpoint }}", "{{ item.key }}"]
+  loop: "{{ storage_pools | dict2items }}"
+  changed_when: false
+  when: not ansible_check_mode
+
+- name: Persist cache-only boot imports for the already adopted pools
+  ansible.builtin.include_tasks: boot.yml
+
+- name: Read existing backing datasets in one query
+  ansible.builtin.command:
+    argv: "{{ ['zfs', 'list', '-H', '-o', 'name', '-t', 'filesystem', '-r'] + (storage_pools.keys() | list) }}"
+  register: storage_dataset_inventory
+  changed_when: false
+  check_mode: false
+
+- name: Track existing backing datasets
+  ansible.builtin.set_fact:
+    storage_dataset_names: "{{ storage_dataset_inventory.stdout_lines }}"
+
+- name: Manage declared share backing roots
+  ansible.builtin.include_tasks: root.yml
+  vars:
+    storage_dataset_exists: "{{ storage_root.dataset in storage_dataset_names }}"
+  loop: "{{ config_resolved.roots }}"
+  loop_control:
+    loop_var: storage_root
+    label: "{{ storage_root.path }}"

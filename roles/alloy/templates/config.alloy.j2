@@ -1,0 +1,148 @@
+// {{ ansible_managed }}
+logging {
+  level = "warn"
+}
+
+// One reader covers system AND user journals, including early-boot runtime
+// journals. Do not add per-user readers or a Podman Loki logging driver.
+loki.source.journal "nas" {
+  forward_to    = [loki.process.sanitize.receiver]
+  relabel_rules = loki.relabel.journal.rules
+  max_age       = {{ alloy_journal_max_age | to_json }}
+  labels        = { node_name = {{ alloy_node_name | to_json }} }
+}
+
+loki.relabel "journal" {
+  forward_to = []
+  rule {
+    target_label = "job"
+    replacement  = "nas-journal"
+  }
+  rule {
+    target_label = "app"
+    replacement  = "host"
+  }
+  // Never collapse a rootless service into its enclosing user@UID.service.
+  // Transient session/libpod scopes and container IDs are not indexed.
+  rule {
+    source_labels = ["__journal__systemd_unit"]
+    regex         = "(.+\\.(?:service|socket|timer|target))"
+    target_label  = "system_unit"
+  }
+  rule {
+    source_labels = ["__journal__systemd_user_unit"]
+    regex         = "(.+\\.(?:service|socket|timer|target))"
+    target_label  = "user_unit"
+  }
+{% for unit_label in ["system_unit", "user_unit"] %}
+  // Template instances can contain UIDs, PIDs, addresses or random tokens.
+  rule {
+    source_labels = ["{{ unit_label }}"]
+    regex         = "([^@]+)@.+\\.(service|socket|timer|target)"
+    target_label  = "{{ unit_label }}"
+    replacement   = "${1}@.${2}"
+  }
+  rule {
+    source_labels = ["{{ unit_label }}"]
+    regex         = "(run|libpod|docker|podman|cri-containerd|crio|container)-.+\\.(service|socket|timer|target)"
+    target_label  = "{{ unit_label }}"
+    replacement   = "${1}.${2}"
+  }
+{% endfor %}
+  rule {
+    source_labels = ["__journal_container_name"]
+    regex         = "(jellyfin|prometheus|webdav)"
+    target_label  = "container"
+  }
+  rule {
+    source_labels = ["__journal_container_name"]
+    regex         = "(jellyfin|prometheus|webdav)"
+    target_label  = "app"
+  }
+  rule {
+    source_labels = ["__journal_priority_keyword"]
+    target_label  = "priority"
+  }
+  rule {
+    action = "labelkeep"
+    regex  = "node_name|job|app|container|system_unit|user_unit|priority"
+  }
+}
+
+loki.process "sanitize" {
+  forward_to = [otelcol.receiver.loki.journal.receiver]
+  // Keep MESSAGE, not the full journal JSON (environment/credentials/IDs).
+  // Defense in depth: applications must also avoid logging credentials.
+  stage.replace {
+    expression = "(?i)(?:bearer|basic)\\s+([A-Za-z0-9._~+/=-]+)"
+    replace    = "[REDACTED]"
+  }
+  stage.replace {
+    expression = "(?i)(?:password|passwd|access_token|refresh_token|api_key|token|secret)[\\\"'\\s]*[:=][\\\"'\\s]*([^\\\"'\\s&,;]+)"
+    replace    = "[REDACTED]"
+  }
+  // No timestamp stage: retain the journal event timestamp through replay.
+}
+
+// The Loki bridge preserves event time and log labels as OTLP attributes.
+otelcol.receiver.loki "journal" {
+  output {
+    logs = [otelcol.processor.attributes.transport_hints.input]
+  }
+}
+
+otelcol.processor.attributes "transport_hints" {
+  action {
+    key    = "loki.attribute.labels"
+    action = "delete"
+  }
+  output {
+    logs = [otelcol.processor.groupbyattrs.identity.input]
+  }
+}
+
+// Only this fixed label set becomes Loki index labels. Grouping also handles
+// mixed host/user streams in the same input batch without merging identities.
+otelcol.processor.groupbyattrs "identity" {
+  keys = ["node_name", "job", "app", "container", "system_unit", "user_unit", "priority"]
+  output {
+    logs = [otelcol.exporter.otlphttp.cluster.input]
+  }
+}
+
+// Public preview in the pinned release. Default directory is inside the
+// component's --storage.path, including compaction artifacts (never tank).
+otelcol.storage.file "delivery" {
+  fsync = true
+  compaction {
+    on_rebound                    = true
+    rebound_needed_threshold_mib  = 128
+    rebound_trigger_threshold_mib = 16
+  }
+}
+
+otelcol.exporter.otlphttp "cluster" {
+  encoding      = "json"
+  logs_endpoint = {{ alloy_loki_url | to_json }}
+  client {
+    endpoint = {{ alloy_loki_url | to_json }}
+    timeout  = "10s"
+    tls {
+      min_version = "1.2"
+    }
+  }
+  retry_on_failure {
+    enabled          = true
+    initial_interval = {{ alloy_write_min_backoff | to_json }}
+    max_interval     = {{ alloy_write_max_backoff | to_json }}
+    max_elapsed_time = {{ alloy_write_retry_max_elapsed | to_json }}
+  }
+  sending_queue {
+    enabled           = true
+    storage           = otelcol.storage.file.delivery.handler
+    sizer             = "bytes"
+    queue_size        = {{ alloy_queue_capacity_bytes }}
+    num_consumers     = 1
+    block_on_overflow = true
+  }
+}

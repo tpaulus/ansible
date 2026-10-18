@@ -1,0 +1,8 @@
+---
+shares_workgroup: WORKGROUP
+shares_server_string: WoodlandPark
+shares_sid: ""
+# Prefix mode preserves Sanoid's retention suffix when opening a snapshot.
+shares_shadow_format: _%Y-%m-%d_%H:%M:%S
+shares_shadow_prefix: ^autosnap$
+shares_shadow_delimiter: _

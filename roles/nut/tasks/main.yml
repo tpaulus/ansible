@@ -5,6 +5,13 @@
       - nut_mode in ['primary', 'secondary', 'shutdown_only']
       - ansible_facts['os_family'] in ['Debian', 'FreeBSD']
 
+- name: Validate explicitly selected UPS USB device filters
+  ansible.builtin.assert:
+    that:
+      - item.vendor is match('^[0-9a-fA-F]{4}$')
+      - item.product is match('^[0-9a-fA-F]{4}$')
+  loop: "{{ nut_usb_devices }}"
+
 - name: Install UPS shutdown script
   ansible.builtin.template:
     src: ups-shutdown.sh.j2

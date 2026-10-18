@@ -1,0 +1,14 @@
+# {{ ansible_managed }}
+[Unit]
+Description=Restrict NAS Alloy management and metrics to central Prometheus
+Before=alloy.service
+After=network-pre.target nftables.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/sbin/nft --file /etc/alloy/metrics.nft
+ExecReload=/usr/sbin/nft --file /etc/alloy/metrics.nft
+
+[Install]
+WantedBy=multi-user.target

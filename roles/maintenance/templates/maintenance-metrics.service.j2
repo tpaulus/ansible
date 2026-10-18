@@ -1,0 +1,12 @@
+[Unit]
+Description=Export NAS storage capacity, scrub history and SMART health to node exporter
+After=zfs-mount.service
+
+[Service]
+Type=oneshot
+Environment=LC_ALL=C TZ=UTC
+ExecStart=/usr/local/libexec/maintenance-metrics
+TimeoutStartSec=8min
+UMask=0022
+StandardOutput=journal
+StandardError=journal

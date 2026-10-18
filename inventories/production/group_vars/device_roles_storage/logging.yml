@@ -1,0 +1,11 @@
+---
+# Planned private route in kube-config/loki-nas; deployment/DNS/TLS and an
+# authorized end-to-end test are cutover prerequisites, not existing service.
+# Native OTLP with Alloy's fsynced file-backed sending queue avoids the
+# loki.write WAL replay defect. This URL is not the Loki push-protocol endpoint.
+alloy_loki_url: https://loki-nas.ing.k3s.brickyard.whitestar.systems/otlp/v1/logs
+alloy_metrics_sources:
+  # Central K3s Prometheus egress is SNATed to these node addresses.
+  - 10.0.40.2/32
+  - 10.0.40.3/32
+  - 10.0.40.4/32

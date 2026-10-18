@@ -1,0 +1,17 @@
+[Unit]
+Description=NAS offsite Restic backups
+After=zfs-mount.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+CacheDirectory=restic
+Environment=XDG_CACHE_HOME=/var/cache/restic
+ExecStart=/usr/local/sbin/backup-to-b2
+TimeoutStartSec=infinity
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7
+UMask=0077
+StandardOutput=journal
+StandardError=journal

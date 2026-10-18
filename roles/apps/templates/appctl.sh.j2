@@ -1,0 +1,42 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+action=${1:-}
+app=${2:-}
+if [[ $action == ls && $# -ne 1 ]] ||
+    [[ $action != ls && ( $# -lt 2 || $# -gt 3 ) ]] ||
+    [[ $# -eq 3 && ( $action != logs || ${3:-} != --follow ) ]]; then
+    echo "usage: appctl ls | {status|restart|logs} APP [--follow]" >&2
+    exit 2
+fi
+case "$action" in
+    ls)
+        printf '%s\n' {{ apps_definitions.keys() | sort | map('quote') | join(' ') }}
+        exit 0
+        ;;
+    status|restart|logs) ;;
+    *) echo "usage: appctl ls | {status|restart|logs} APP [--follow]" >&2; exit 2 ;;
+esac
+case "$app" in
+{% for name, app in apps_definitions.items() %}
+    {{ name }}) account={{ app.account | quote }} ;;
+{% endfor %}
+    *) echo "Unknown application: $app" >&2; exit 2 ;;
+esac
+if [[ $EUID != 0 ]]; then
+    echo "Run this command with sudo." >&2
+    exit 1
+fi
+identity=$(getent passwd "$account")
+IFS=: read -r _ _ uid _ _ home _ <<< "$identity"
+command=(systemctl --user "$action" "$app.service")
+if [[ $action == logs ]]; then
+    command=(journalctl --user -u "$app.service")
+    if [[ ${3:-} == --follow ]]; then
+        command+=(--follow)
+    else
+        command+=(-n 100 --no-pager)
+    fi
+fi
+exec runuser -u "$account" -- env HOME="$home" XDG_RUNTIME_DIR="/run/user/$uid" \
+    DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$uid/bus" "${command[@]}"

@@ -1,0 +1,14 @@
+---
+# Initial application references are the running TrueNAS images, not upgrades.
+# renovate: datasource=docker depName=ghcr.io/jellyfin/jellyfin
+jellyfin_image: "ghcr.io/jellyfin/jellyfin:12.2@sha256:c3efa69a22f2691fc88d6bb035e87a8560e395a6047f062fb381c61c3185e8f5"
+# renovate: datasource=docker depName=prom/prometheus
+prometheus_image: "prom/prometheus:v3.15.0@sha256:efd719c99d83b060d9daefdcf00360461adf279f45ef5391f8d111892118753e"
+# renovate: datasource=docker depName=httpd
+webdav_image: "httpd:2.4.69@sha256:c842ac797bd1fe8b3cd26d002ac9d948aa2814097544600600b35aef42e6785a"
+# renovate: datasource=github-releases depName=grafana/alloy extractVersion=^v(?<version>.*)$
+alloy_version: "1.20.1"
+# Podman and exporter major versions must be upgraded together.
+podman_version: "6.1.3"
+# renovate: datasource=docker depName=quay.io/navidys/prometheus-podman-exporter
+apps_exporter_image: "quay.io/navidys/prometheus-podman-exporter:v2.0.0@sha256:ddaa9003e86f435f2d958ab68041959e4d2bb290a350a2649a123c449db032db"

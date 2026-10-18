@@ -1,0 +1,44 @@
+---
+- name: Verify root backing mount
+  ansible.builtin.command:
+    argv:
+      - /usr/local/libexec/mount-guard
+      - "{{ accounts_root.path if accounts_root.kind == 'dataset' else accounts_root.path | dirname }}"
+      - "{{ accounts_root.dataset }}"
+  changed_when: false
+  when: not ansible_check_mode
+
+- name: Inspect the declared root without following links
+  ansible.builtin.stat:
+    path: "{{ accounts_root.path }}"
+    follow: false
+  register: accounts_directory
+
+- name: Require existing storage or explicit directory creation
+  ansible.builtin.assert:
+    that:
+      - >-
+        (accounts_directory.stat.exists and accounts_directory.stat.isdir)
+        or (accounts_root.kind == 'directory' and accounts_root.create)
+      - not accounts_directory.stat.islnk | default(false)
+    fail_msg: "Missing or unsafe root {{ accounts_root.path }}; implicit creation is prohibited."
+
+- name: Verify the existing root itself before changing ownership or modes
+  ansible.builtin.command:
+    argv:
+      - /usr/local/libexec/mount-guard
+      - "{{ accounts_root.path }}"
+      - "{{ accounts_root.dataset }}"
+  changed_when: false
+  when:
+    - accounts_directory.stat.exists
+    - not ansible_check_mode
+
+- name: Manage only the declared root metadata
+  ansible.builtin.file:
+    path: "{{ accounts_root.path }}"
+    state: directory
+    owner: "{{ accounts_root.owner }}"
+    group: "{{ accounts_root.group }}"
+    mode: "{{ accounts_root.mode }}"
+    recurse: false

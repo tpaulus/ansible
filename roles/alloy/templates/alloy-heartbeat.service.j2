@@ -1,0 +1,14 @@
+# {{ ansible_managed }}
+[Unit]
+Description=NAS host journal collection heartbeat
+
+[Service]
+Type=oneshot
+User=alloy
+ExecStart=/usr/bin/echo nas-log-heartbeat
+StandardOutput=journal
+SyslogIdentifier=alloy-heartbeat
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes

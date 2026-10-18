@@ -1,0 +1,11 @@
+# {{ ansible_managed }}
+[Journal]
+Storage=persistent
+SplitMode=uid
+SystemMaxUse={{ alloy_journal_max_use }}
+SystemKeepFree={{ alloy_journal_keep_free }}
+SystemMaxFileSize=64M
+RuntimeMaxUse=64M
+MaxRetentionSec={{ alloy_journal_retention }}
+MaxFileSec=1day
+Compress=yes

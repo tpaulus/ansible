@@ -1,0 +1,33 @@
+---
+- name: Reload NAS systemd
+  ansible.builtin.systemd_service:
+    daemon_reload: true
+
+- name: Restart NAS Samba
+  ansible.builtin.systemd_service:
+    name: smbd
+    state: restarted
+
+- name: Verify NAS export backing mounts before reloading
+  listen: Reload NAS exports
+  ansible.builtin.command:
+    argv: >-
+      {{ ['/usr/local/libexec/mount-guard'] +
+         (config_resolved.mounts | map(attribute='path') |
+          zip(config_resolved.mounts | map(attribute='dataset')) | map('list') | flatten) }}
+  changed_when: false
+
+- name: Apply validated NAS exports
+  listen: Reload NAS exports
+  ansible.builtin.command: exportfs -ra
+  changed_when: true
+
+- name: Restart NAS NFS
+  ansible.builtin.systemd_service:
+    name: nfs-server
+    state: restarted
+
+- name: Restart NAS Avahi
+  ansible.builtin.systemd_service:
+    name: avahi-daemon
+    state: restarted

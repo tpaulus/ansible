@@ -1,0 +1,101 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "datasets"],
+  "properties": {
+    "schema_version": {"const": 2},
+    "datasets": {
+      "type": "object",
+      "minProperties": 1,
+      "propertyNames": {"$ref": "#/$defs/key"},
+      "additionalProperties": {"$ref": "#/$defs/dataset"}
+    },
+    "nfs_protocols": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"enum": [3, 4]}}
+  },
+  "$defs": {
+    "key": {"type": "string", "pattern": "^[a-z][a-z0-9_-]*$"},
+    "account": {"type": "string", "pattern": "^[a-z_][a-z0-9_-]*[$]?$"},
+    "names": {"type": "array", "uniqueItems": true, "items": {"$ref": "#/$defs/account"}},
+    "mode": {"type": "string", "pattern": "^[0123][0-7]{2}[0-7]$"},
+    "dataset": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["dataset"],
+      "properties": {
+        "dataset": {"type": "string", "pattern": "^[A-Za-z][A-Za-z0-9_. -]*(/[A-Za-z0-9_. -]+)+$"},
+        "path": {"type": "string", "pattern": "^/mnt/[^\\n\\r\\t%\"\\\\#;{}]+$"},
+        "owner": {"$ref": "#/$defs/account"},
+        "group": {"$ref": "#/$defs/account"},
+        "mode": {"$ref": "#/$defs/mode"},
+        "create": {"type": "boolean"},
+        "smb": {"$ref": "#/$defs/smb"},
+        "nfs": {"$ref": "#/$defs/export"},
+        "properties": {
+          "type": "object", "additionalProperties": false,
+          "properties": {
+            "compression": {"enum": ["on", "off", "lz4", "zstd"]},
+            "atime": {"enum": ["on", "off"]},
+            "recordsize": {"enum": ["16K", "128K", "1M"]},
+            "quota": {"type": "string", "pattern": "^(none|[1-9][0-9]*[MGT])$"}
+          }
+        },
+        "private_children": {
+          "type": "object",
+          "propertyNames": {"$ref": "#/$defs/account"},
+          "additionalProperties": {
+            "type": "object", "additionalProperties": false,
+            "properties": {
+              "kind": {"enum": ["directory", "dataset"]},
+              "group": {"$ref": "#/$defs/account"},
+              "mode": {"$ref": "#/$defs/mode"},
+              "create": {"type": "boolean"}
+            }
+          }
+        }
+      }
+    },
+    "client": {
+      "type": "object", "additionalProperties": false,
+      "oneOf": [{"required": ["network"]}, {"required": ["inventory_group"]}],
+      "properties": {
+        "network": {"$ref": "#/$defs/network"},
+        "inventory_group": {"type": "string", "pattern": "^[A-Za-z][A-Za-z0-9_]*$"}
+      }
+    },
+    "network": {"type": "string", "pattern": "^(\\*|[0-9a-fA-F:.]+(/[0-9]{1,3})?)$"},
+    "export": {
+      "type": "object", "additionalProperties": false,
+      "required": ["clients"],
+      "properties": {
+        "clients": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/client"}},
+        "read_only": {"type": "boolean"},
+        "squash": {"enum": ["root", "all", "none"]},
+        "anonymous_user": {"$ref": "#/$defs/account"},
+        "anonymous_group": {"$ref": "#/$defs/account"},
+        "security": {"const": "sys"},
+        "purpose": {"$ref": "#/$defs/key"}
+      },
+      "allOf": [{
+        "if": {"required": ["squash"], "properties": {"squash": {"const": "all"}}},
+        "then": {"required": ["anonymous_user", "anonymous_group"]}
+      }]
+    },
+    "smb": {
+      "type": "object", "additionalProperties": false,
+      "required": ["valid_users"],
+      "properties": {
+        "name": {"type": "string", "pattern": "^[^\\n\\r\\t\\[\\]\";#\\\\{}]+$"},
+        "path_suffix": {"const": "%U"},
+        "valid_users": {"$ref": "#/$defs/names", "minItems": 1},
+        "read_users": {"$ref": "#/$defs/names"},
+        "write_users": {"$ref": "#/$defs/names"},
+        "browseable": {"type": "boolean"},
+        "abe": {"type": "boolean"},
+        "hosts_allow": {"type": "array", "uniqueItems": true, "items": {"$ref": "#/$defs/network"}},
+        "time_machine": {"type": "boolean"},
+        "shadow_copy": {"type": "boolean"}
+      }
+    }
+  }
+}

@@ -1,0 +1,20 @@
+{{ ansible_managed | comment }}
+{% for policy in maintenance_snapshots %}
+[{{ config_resolved.datasets[policy.dataset_key].dataset }}]
+    hourly = {{ policy.hourly }}
+    daily = {{ policy.daily }}
+    weekly = 0
+    monthly = 0
+    yearly = 0
+    frequently = 0
+    autosnap = yes
+    autoprune = {{ 'yes' if maintenance_pruning_approved else 'no' }}
+    recursive = {{ 'yes' if policy.recursive | default(false) else 'no' }}
+{% for exclude in policy.exclude_children | default([]) %}
+
+[{{ config_resolved.datasets[policy.dataset_key].dataset }}/{{ exclude }}]
+    autosnap = no
+    autoprune = no
+    recursive = yes
+{% endfor %}
+{% endfor %}

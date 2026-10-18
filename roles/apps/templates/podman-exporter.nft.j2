@@ -1,0 +1,15 @@
+# {{ ansible_managed }}
+add table inet podman_exporter
+flush table inet podman_exporter
+table inet podman_exporter {
+    set prometheus_sources {
+        type ipv4_addr
+        flags interval
+        elements = { 127.0.0.0/8, {{ apps_exporter_metrics_sources | join(', ') }} }
+    }
+    chain metrics_input {
+        type filter hook input priority -10; policy accept;
+        tcp dport { {{ apps_exporter_ports.values() | sort | join(', ') }} } ip saddr @prometheus_sources accept
+        tcp dport { {{ apps_exporter_ports.values() | sort | join(', ') }} } reject with tcp reset
+    }
+}

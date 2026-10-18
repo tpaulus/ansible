@@ -26,5 +26,5 @@ jobs:
         run: ansible-lint --offline
       - name: Check every playbook
         run: bash scripts/check-syntax.sh
-      - name: Test changed behavior without infrastructure
-        run: python -m unittest discover -s tests -v
+      - name: Check share resolution and templates
+        run: python -m unittest discover -s tests

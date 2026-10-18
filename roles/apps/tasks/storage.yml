@@ -1,0 +1,7 @@
+---
+- name: Prepare only repository-owned application datasets
+  ansible.builtin.include_tasks: dataset.yml
+  loop: "{{ apps_app.mounts | selectattr('create', 'defined') | selectattr('create') | list }}"
+  loop_control:
+    loop_var: apps_mount
+    label: "{{ apps_mount.dataset }}"

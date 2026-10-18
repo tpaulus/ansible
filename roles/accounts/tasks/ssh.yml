@@ -1,0 +1,27 @@
+---
+- name: Inspect existing administrator SSH paths without replacing keys
+  ansible.builtin.stat:
+    path: "{{ accounts_ssh_user.value.home }}/{{ item.path }}"
+  loop:
+    - {path: .ssh, mode: "0700"}
+    - {path: .ssh/authorized_keys, mode: "0600"}
+  register: accounts_ssh_metadata
+
+- name: Refuse symlinked administrator SSH paths
+  ansible.builtin.assert:
+    that: not item.stat.islnk | default(false)
+  loop: "{{ accounts_ssh_metadata.results }}"
+  loop_control:
+    label: "{{ item.item.path }}"
+
+- name: Keep existing SSH paths owned by the reviewed login identity
+  ansible.builtin.file:
+    path: "{{ item.stat.path }}"
+    owner: "{{ accounts_ssh_user.key }}"
+    group: "{{ accounts_ssh_user.value.group }}"
+    mode: "{{ item.item.mode }}"
+    follow: false
+  loop: "{{ accounts_ssh_metadata.results }}"
+  loop_control:
+    label: "{{ item.item.path }}"
+  when: item.stat.exists and not item.stat.islnk

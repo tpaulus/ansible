@@ -1,0 +1,55 @@
+---
+# This task file is deliberately not included by normal provisioning.
+- name: Resolve only selected explicitly staged application state
+  ansible.builtin.set_fact:
+    apps_resolved: "{{ apps_definitions | resolve_apps(config_resolved | default({}), apps_accounts, apps_selected) }}"
+
+- name: Check that no destination application is running
+  ansible.builtin.command:
+    argv: [systemctl, --user, is-active, "{{ item.name }}.service"]
+  become: true
+  become_user: "{{ item.account }}"
+  environment:
+    XDG_RUNTIME_DIR: "/run/user/{{ item.identity.uid }}"
+    DBUS_SESSION_BUS_ADDRESS: "unix:path=/run/user/{{ item.identity.uid }}/bus"
+  register: apps_destination_active
+  changed_when: false
+  failed_when: apps_destination_active.rc not in [3, 4]
+  loop: "{{ apps_resolved }}"
+  loop_control:
+    label: "{{ item.name }}"
+
+- name: Restore protected clones only through the explicit migration operation
+  ansible.builtin.include_tasks: clone.yml
+  when: apps_import_method == 'clone'
+
+- name: Prepare application datasets for staged copy import
+  ansible.builtin.include_tasks: storage.yml
+  loop: "{{ apps_resolved if apps_import_method == 'copy' else [] }}"
+  loop_control:
+    loop_var: apps_app
+    label: "{{ apps_app.name }}"
+
+- name: Install the explicit offline-state import helper
+  ansible.builtin.copy:
+    src: import-state.py
+    dest: /usr/local/libexec/import-app-state
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Install the copy utility only for the explicit operation
+  ansible.builtin.apt:
+    name: rsync
+    state: present
+
+- name: Copy verified state into empty app datasets with explicit ownership mapping
+  ansible.builtin.command:
+    cmd: /usr/local/libexec/import-app-state
+    stdin: >-
+      {{ {'source_root': apps_import_source_root,
+          'source_dataset': apps_import_source_dataset,
+          'mount_guard': apps_mount_guard, 'apps': apps_resolved} | to_json }}
+  register: apps_import_result
+  changed_when: "'Imported ' in apps_import_result.stdout"
+  when: apps_import_method == 'copy'

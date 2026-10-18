@@ -1,0 +1,10 @@
+[Unit]
+Description=NAS offsite backups every three hours
+
+[Timer]
+OnCalendar={{ backup_calendar }}
+Persistent=true
+Unit=restic.service
+
+[Install]
+WantedBy=timers.target

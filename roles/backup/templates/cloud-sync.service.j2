@@ -1,0 +1,12 @@
+[Unit]
+Description=NAS encrypted B2 cloud sync (separate from Restic)
+After=zfs-mount.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/cloud-sync
+TimeoutStartSec=infinity
+UMask=0077
+StandardOutput=journal
+StandardError=journal

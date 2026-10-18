@@ -1,0 +1,14 @@
+---
+- name: Validate versioned NetBox share schema
+  ansible.builtin.assert:
+    that: config_schema_errors | length == 0
+    fail_msg: "{{ config_schema_errors | map(attribute='message') | join('; ') }}"
+  vars:
+    config_schema_errors: >-
+      {{ lookup('ansible.utils.validate', nas,
+                lookup('ansible.builtin.file', role_path + '/files/schema.json') | from_json,
+                engine='ansible.utils.jsonschema', wantlist=true) }}
+
+- name: Resolve and cross-check all shares before mutation
+  ansible.builtin.set_fact:
+    config_resolved: "{{ nas | resolve_shares(accounts_users, accounts_groups, hostvars, groups, storage_pools) }}"

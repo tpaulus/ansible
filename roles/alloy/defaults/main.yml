@@ -1,0 +1,27 @@
+---
+# Public NAS policy variables are shared with the canonical storage inventory.
+alloy_version: "1.20.1"
+alloy_package_revision: "1"
+alloy_repository_key_sha256: 3d4029689bc7e4444ec00abafa07f21e9c812b41f1123ab5bbe6f8c3e3f7ff8c
+alloy_repository_key_fingerprint: B53AE77BADB630A683046005963FA27710458545
+
+# No cluster-local or unprotected fallback: the private route must be deployed first.
+alloy_loki_url: ""
+alloy_node_name: "{{ inventory_hostname }}"
+alloy_listen_port: 12345
+alloy_metrics_sources: []
+
+alloy_journal_max_use: 512M
+alloy_journal_keep_free: 1G
+alloy_journal_retention: 2day
+alloy_journal_max_age: 24h
+# Use Alloy's public-preview file storage, not loki.write's broken WAL replay.
+# The persistent queue fsyncs before enqueue returns; no volatile batch
+# processor sits before it. Capacity bounds serialized pending payload, not
+# bbolt's total allocated file size; compaction reclaims its high-water mark.
+# Retry exhaustion (2h per processing attempt), full/failed storage, journal
+# vacuuming and permanent Loki rejection remain bounded-loss conditions.
+alloy_queue_capacity_bytes: 67108864
+alloy_write_retry_max_elapsed: 2h
+alloy_write_min_backoff: 1s
+alloy_write_max_backoff: 1m

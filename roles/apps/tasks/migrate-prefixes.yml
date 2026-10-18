@@ -1,0 +1,7 @@
+---
+- name: Remove legacy files for each configured application
+  ansible.builtin.include_tasks: migrate-app-prefix.yml
+  loop: "{{ apps_definitions | dict2items }}"
+  loop_control:
+    loop_var: apps_legacy_app
+    label: "{{ apps_legacy_app.key }}"

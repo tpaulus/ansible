@@ -1,7 +1,32 @@
 ---
-- name: Configure offsite backups
+- name: Configure Debian storage
   hosts: device_roles_storage
   become: true
-  tags: [storage, backups]
+  tags: [storage]
+  pre_tasks:
+    - name: Require Debian 13 or newer
+      ansible.builtin.assert:
+        that:
+          - ansible_facts['distribution'] == 'Debian'
+          - ansible_facts['distribution_major_version'] | int >= 13
+      tags: [always]
+
   roles:
-    - role: truenas_backup
+    - role: config
+      tags: [shares, accounts, backups, maintenance, apps, jellyfin, prometheus, webdav]
+    - role: alloy
+      tags: [logging]
+    - role: storage
+      tags: [shares, accounts, backups, maintenance, apps, jellyfin, prometheus, webdav]
+    - role: accounts
+      tags: [accounts]
+    - role: shares
+      tags: [shares]
+    - role: maintenance
+      tags: [maintenance]
+    - role: podman
+      tags: [apps, jellyfin, prometheus, webdav]
+    - role: apps
+      tags: [apps, jellyfin, prometheus, webdav]
+    - role: backup
+      tags: [backups]

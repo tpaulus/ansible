@@ -1,0 +1,16 @@
+# {{ ansible_managed }}
+# Only this table is replaced; existing host firewall and egress remain intact.
+add table inet alloy
+flush table inet alloy
+table inet alloy {
+    set prometheus_sources {
+        type ipv4_addr
+        flags interval
+        elements = { 127.0.0.0/8, {{ alloy_metrics_sources | join(', ') }} }
+    }
+    chain metrics_input {
+        type filter hook input priority -10; policy accept;
+        tcp dport {{ alloy_listen_port }} ip saddr @prometheus_sources accept
+        tcp dport {{ alloy_listen_port }} reject with tcp reset
+    }
+}

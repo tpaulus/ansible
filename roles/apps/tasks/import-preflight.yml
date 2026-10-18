@@ -1,0 +1,32 @@
+---
+- name: Detect the protected source appliance before any import preparation
+  ansible.builtin.stat:
+    path: /usr/bin/midclt
+  register: apps_source_appliance
+
+- name: Require a narrowly limited and explicitly approved offline import
+  ansible.builtin.assert:
+    that:
+      - apps_enabled | bool
+      - ansible_facts['distribution'] == 'Debian'
+      - ansible_facts['distribution_major_version'] | int >= 13
+      - not apps_source_appliance.stat.exists
+      - ansible_limit | default('') | length > 0
+      - ansible_limit != 'all'
+      - ansible_play_hosts_all | length == 1
+      - apps_import_confirm == 'IMPORT ' ~ inventory_hostname
+      - apps_import_sources_stopped | bool
+      - apps_import_backups_verified | bool
+      - apps_import_method in ['copy', 'clone']
+      - >-
+        apps_import_method == 'clone'
+        or (apps_import_source_root is match('^/mnt/')
+            and apps_import_source_dataset | length > 0)
+      - >-
+        apps_import_method == 'copy'
+        or (apps_clone_migration is match('^[a-z0-9-]+$')
+            and apps_clone_sources | length > 0)
+      - not ansible_check_mode
+    fail_msg: >-
+      Import requires --limit one Debian host, IMPORT <host>, stopped sources, verified untouched backups
+      and either copy with a mounted staging dataset or clone with a migration ID and reviewed source mappings.

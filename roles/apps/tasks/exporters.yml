@@ -1,0 +1,62 @@
+---
+- name: Validate exporter configuration
+  ansible.builtin.assert:
+    that:
+      - apps_exporter_image is defined
+      - apps_exporter_image is match('^.+@sha256:[a-f0-9]{64}$')
+      - apps_exporter_metrics_sources | length > 0
+      - apps_exporter_ports | length > 0
+      - apps_exporter_ports.values() | unique | length == apps_exporter_ports | length
+      - apps_definitions.values() | map(attribute='account') | difference(apps_exporter_ports.keys()) | length == 0
+      - apps_exporter_ports.keys() | difference(apps_accounts | map(attribute='name')) | length == 0
+
+- name: Validate exporter listener ports
+  ansible.builtin.assert:
+    that:
+      - item.value is integer
+      - item.value > 1024
+      - item.value < 65536
+  loop: "{{ apps_exporter_ports | dict2items }}"
+
+- name: Validate Prometheus source networks
+  ansible.builtin.assert:
+    that: item is match('^[0-9.]+/[0-9]+$')
+  loop: "{{ apps_exporter_metrics_sources }}"
+
+- name: Install exporter firewall dependency
+  ansible.builtin.apt:
+    name: nftables
+    state: present
+
+- name: Install exporter network restriction
+  ansible.builtin.template:
+    src: podman-exporter.nft.j2
+    dest: /etc/podman-exporter.nft
+    owner: root
+    group: root
+    mode: "0644"
+    validate: /usr/sbin/nft --check --file %s
+  register: apps_exporter_firewall
+
+- name: Install exporter firewall service
+  ansible.builtin.template:
+    src: podman-exporter-firewall.service.j2
+    dest: /etc/systemd/system/podman-exporter-firewall.service
+    owner: root
+    group: root
+    mode: "0644"
+  register: apps_exporter_firewall_unit
+
+- name: Apply network restrictions before starting exporters
+  ansible.builtin.systemd_service:
+    name: podman-exporter-firewall.service
+    daemon_reload: true
+    enabled: true
+    state: "{{ 'restarted' if (apps_exporter_firewall.changed or apps_exporter_firewall_unit.changed) else 'started' }}"
+
+- name: Configure one exporter per selected rootless account
+  ansible.builtin.include_tasks: exporter-account.yml
+  loop: "{{ apps_accounts | selectattr('name', 'in', apps_resolved | map(attribute='account') | list) | list }}"
+  loop_control:
+    loop_var: apps_exporter_account
+    label: "{{ apps_exporter_account.name }}"

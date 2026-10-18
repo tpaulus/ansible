@@ -8,13 +8,15 @@ collections:
     version: 2.2.2
   - name: ansible.utils
     version: 6.1.1
-  - name: arensb.truenas
-    version: 2.0.3
   - name: netbox.netbox
     version: 3.23.1
   - name: prometheus.prometheus
     version: 0.30.2
 
 roles:
+  - name: alvistack.podman
+    src: https://github.com/alvistack/ansible-role-podman
+    scm: git
+    version: 14.5.2
   - name: xanmanning.k3s
     version: v3.6.4

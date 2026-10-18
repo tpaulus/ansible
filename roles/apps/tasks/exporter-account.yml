@@ -1,0 +1,89 @@
+---
+- name: Manage exporter in the application's rootless environment
+  become: true
+  become_user: "{{ apps_exporter_account.name }}"
+  environment:
+    HOME: "{{ apps_exporter_account.home }}"
+    XDG_RUNTIME_DIR: "/run/user/{{ apps_exporter_account.uid }}"
+    DBUS_SESSION_BUS_ADDRESS: "unix:path=/run/user/{{ apps_exporter_account.uid }}/bus"
+  block:
+    - name: Verify Podman 6 exporter compatibility
+      ansible.builtin.command:
+        argv: [podman, --version]
+      register: apps_exporter_podman_version
+      changed_when: false
+
+    - name: Require the supported runtime major version
+      ansible.builtin.assert:
+        that: apps_exporter_podman_version.stdout is match('^podman version 6\.')
+        fail_msg: Review the pinned exporter image before using another Podman major version.
+
+    - name: Enable the private rootless Podman socket
+      ansible.builtin.systemd_service:
+        name: podman.socket
+        scope: user
+        enabled: true
+        state: started
+
+    - name: Check for the pinned exporter image
+      ansible.builtin.command:
+        argv: [podman, image, exists, "{{ apps_exporter_image }}"]
+      register: apps_exporter_present
+      changed_when: false
+      failed_when: apps_exporter_present.rc not in [0, 1]
+      check_mode: false
+
+    - name: Pull a missing pinned exporter image
+      ansible.builtin.command:
+        argv: [podman, pull, "{{ apps_exporter_image }}"]
+      when: apps_exporter_present.rc != 0
+      changed_when: true
+
+    - name: Stage exporter Quadlet for validation
+      ansible.builtin.template:
+        src: podman-exporter.container.j2
+        dest: "{{ apps_exporter_account.home }}/.config/containers/candidate/podman-exporter.container"
+        mode: "0600"
+
+    - name: Validate exporter Quadlet
+      ansible.builtin.command:
+        argv: [/usr/lib/systemd/system-generators/podman-system-generator, --user, --dryrun]
+      environment:
+        QUADLET_UNIT_DIRS: "{{ apps_exporter_account.home }}/.config/containers/candidate"
+      register: apps_exporter_generated
+      changed_when: false
+      check_mode: false
+
+    - name: Require a valid exporter service
+      ansible.builtin.assert:
+        that:
+          - "'podman-exporter.service' in apps_exporter_generated.stdout"
+          - "'unsupported key' not in apps_exporter_generated.stderr | lower"
+
+    - name: Publish the validated exporter Quadlet
+      ansible.builtin.copy:
+        src: "{{ apps_exporter_account.home }}/.config/containers/candidate/podman-exporter.container"
+        dest: "{{ apps_exporter_account.home }}/.config/containers/systemd/podman-exporter.container"
+        remote_src: true
+        mode: "0600"
+      register: apps_exporter_quadlet
+
+    - name: Start the generated exporter service
+      ansible.builtin.systemd_service:
+        name: podman-exporter.service
+        scope: user
+        daemon_reload: true
+        state: "{{ 'restarted' if apps_exporter_quadlet.changed else 'started' }}"
+
+- name: Verify exporter metrics are served
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:{{ apps_exporter_ports[apps_exporter_account.name] }}/metrics"
+    return_content: true
+  register: apps_exporter_metrics
+  until: apps_exporter_metrics is succeeded
+  retries: 12
+  delay: 5
+
+- name: Require real container metrics
+  ansible.builtin.assert:
+    that: "'podman_container_state{' in apps_exporter_metrics.content"

@@ -4,16 +4,16 @@
     name: "{{ base_timezone }}"
   notify: Restart cron
 
-- name: Configure compute tools
-  when: "'device_roles_compute' in group_names"
+- name: Configure Debian compute and storage tools
+  when: "'device_roles_compute' in group_names or 'device_roles_storage' in group_names"
   block:
-    - name: Require supported compute OS
+    - name: Require supported compute or storage OS
       ansible.builtin.assert:
         that: ansible_facts['os_family'] == 'Debian'
-        fail_msg: Compute provisioning currently supports Debian-family systems only.
+        fail_msg: Compute and storage provisioning supports Debian-family systems only.
     - name: Install common tools
       ansible.builtin.apt:
-        name: "{{ base_packages }}"
+        name: "{{ base_packages + (['zsh'] if 'device_roles_storage' in group_names else []) }}"
         state: present
         update_cache: true
         cache_valid_time: 3600

@@ -1,0 +1,32 @@
+---
+- name: Install firmware and Intel engine acceptance tooling
+  ansible.builtin.apt:
+    name: "{{ apps_gpu_packages }}"
+    state: present
+
+- name: Resolve the discovered Intel PCI render-device symlink
+  ansible.builtin.command:
+    argv: [readlink, -f, "{{ apps_app.gpu_device }}"]
+  register: apps_gpu_realpath
+  changed_when: false
+  check_mode: false
+
+- name: Stat the real render node rather than the root-owned symlink
+  ansible.builtin.stat:
+    path: "{{ apps_gpu_realpath.stdout }}"
+    follow: true
+  register: apps_gpu_stat
+
+- name: Require the discovered Intel character device and named host group
+  ansible.builtin.assert:
+    that:
+      - apps_gpu_realpath.stdout is match('^/dev/dri/renderD[0-9]+$')
+      - apps_gpu_stat.stat.ischr | default(false)
+      - apps_gpu_stat.stat.gr_name is defined
+
+- name: Grant only Jellyfin access to the actual render group
+  ansible.builtin.user:
+    name: "{{ apps_app.account }}"
+    groups: "{{ apps_gpu_stat.stat.gr_name }}"
+    append: true
+  notify: Refresh application user managers

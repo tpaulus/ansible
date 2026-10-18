@@ -3,5 +3,33 @@
   "extends": [
     "config:recommended",
     "github>tpaulus/renovate-config:auto-merge-gh-actions"
+  ],
+  "customManagers": [
+    {
+      "customType": "regex",
+      "managerFilePatterns": ["/^inventories/production/group_vars/device_roles_storage/versions\\.yml$/"],
+      "matchStrings": [
+        "# renovate: datasource=(?<datasource>docker) depName=(?<depName>\\S+)\\s+\\w+_image:\\s*\"[\\w./-]+:(?<currentValue>[\\w.+-]+)@(?<currentDigest>sha256:[a-f0-9]{64})\""
+      ]
+    },
+    {
+      "customType": "regex",
+      "managerFilePatterns": ["/^inventories/production/group_vars/device_roles_storage/versions\\.yml$/"],
+      "matchStrings": [
+        "# renovate: datasource=(?<datasource>github-releases) depName=(?<depName>\\S+) extractVersion=(?<extractVersion>\\S+)\\s+alloy_version:\\s*\"(?<currentValue>[^\"]+)\""
+      ]
+    }
+  ],
+  "packageRules": [
+    {
+      "matchPackageNames": ["quay.io/navidys/prometheus-podman-exporter"],
+      "allowedVersions": "/^v2\\./"
+    },
+    {
+      "matchManagers": ["custom.regex"],
+      "matchFileNames": ["inventories/production/group_vars/device_roles_storage/versions.yml"],
+      "automerge": false,
+      "pinDigests": true
+    }
   ]
 }

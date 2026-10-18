@@ -5,19 +5,26 @@
   serial: 1
   tags: [maintenance, backups]
   tasks:
+    - name: Load canonical backup defaults without overriding inventory policy
+      ansible.builtin.include_vars:
+        file: ../../../roles/backup/defaults/main.yml
+        name: backup_defaults
+
     - name: Require explicit storage targets and datasets
       ansible.builtin.assert:
         that:
           - ansible_limit | default('') | length > 0
           - ansible_limit != 'all'
-          - truenas_backup_shares | default([]) | length > 0
+          - ansible_play_hosts_all | length == 1
+          - backup_sources | default([]) | length > 0
         fail_msg: Specify --limit and the configured backup datasets.
 
     - name: Unlock stale repository locks
-      ansible.builtin.command: /usr/bin/restic unlock
-      loop: "{{ truenas_backup_shares }}"
+      ansible.builtin.command:
+        argv: ["{{ backup_restic_bin | default(backup_defaults.backup_restic_bin) }}", unlock]
+      loop: "{{ backup_sources }}"
       environment:
-        RESTIC_REPOSITORY: "s3:{{ b2_s3_endpoint }}/{{ offsite_b2_bucket_name }}/{{ item }}"
+        RESTIC_REPOSITORY: "s3:{{ b2_s3_endpoint }}/{{ offsite_b2_bucket_name }}/{{ item.repository_prefix }}"
         RESTIC_PASSWORD: "{{ offsite_restic_password }}"
         AWS_ACCESS_KEY_ID: "{{ b2_account_id }}"
         AWS_SECRET_ACCESS_KEY: "{{ b2_account_key }}"

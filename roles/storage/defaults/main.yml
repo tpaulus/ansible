@@ -1,0 +1,10 @@
+---
+storage_pools: {}
+storage_extra_datasets: {}
+storage_packages:
+  - zfsutils-linux
+  - zfs-dkms
+  - python3
+  - util-linux
+  - "linux-headers-{{ ansible_facts['kernel'] }}"
+  - "linux-headers-{{ 'amd64' if ansible_facts['architecture'] == 'x86_64' else 'arm64' }}"

@@ -1,0 +1,11 @@
+---
+- name: Verify approved pool identities without importing storage
+  ansible.builtin.command:
+    argv: [zpool, get, -H, -o, value, guid, "{{ item.key }}"]
+  loop: "{{ storage_pools | dict2items }}"
+  loop_control:
+    label: "{{ item.key }}"
+  register: storage_pool_identity
+  changed_when: false
+  failed_when: storage_pool_identity.rc != 0 or storage_pool_identity.stdout | trim != item.value.guid | string
+  check_mode: false

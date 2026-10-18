@@ -1,0 +1,26 @@
+---
+- name: Require unique backup repositories and application coverage
+  ansible.builtin.assert:
+    that:
+      - backup_sources | length > 0
+      - backup_sources | map(attribute='key') | unique | length == backup_sources | length
+      - backup_sources | map(attribute='repository_prefix') | unique | length == backup_sources | length
+      - >-
+        backup_required_apps | difference(backup_sources | selectattr('kind', 'equalto', 'application_capture')
+        | map(attribute='app') | list) | length == 0
+    fail_msg: Configure unique backup sources, including consistent captures for each application.
+
+- name: Verify backup source mounts
+  vars:
+    backup_source_storage: "{{ config_resolved.datasets[item.dataset_key] if item.kind == 'files' else item.capture }}"
+  ansible.builtin.command:
+    argv: ["{{ backup_mount_guard }}", "{{ backup_source_storage.path }}", "{{ backup_source_storage.dataset }}"]
+  loop: "{{ backup_sources }}"
+  loop_control:
+    label: "{{ item.key }}"
+  changed_when: false
+  when: not ansible_check_mode
+
+- name: Validate enabled cloud sync
+  ansible.builtin.include_tasks: validate-cloud-sync.yml
+  when: backup_cloud_sync_enabled | bool

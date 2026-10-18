@@ -1,0 +1,93 @@
+---
+- name: Prepare Debian NAS tooling before importing storage
+  hosts: device_roles_storage
+  become: true
+  gather_facts: true
+  tasks:
+    - name: Detect the protected source appliance
+      ansible.builtin.stat:
+        path: /usr/bin/midclt
+      register: prepare_appliance
+
+    - name: Require one confirmed Debian preparation target
+      ansible.builtin.assert:
+        that:
+          - ansible_limit | default('') | length > 0
+          - ansible_limit != 'all'
+          - ansible_play_hosts_all | length == 1
+          - prepare_confirm | default('') == inventory_hostname
+          - ansible_facts['distribution'] == 'Debian'
+          - ansible_facts['distribution_major_version'] | int >= 13
+          - ansible_facts['architecture'] in ['x86_64', 'aarch64']
+          - not prepare_appliance.stat.exists
+          - not ansible_check_mode
+
+    - name: Read kernel pool inventory before changing import services
+      ansible.builtin.command:
+        argv: [findmnt, --noheadings, --types, zfs]
+      register: prepare_mounts
+      changed_when: false
+      failed_when: prepare_mounts.rc not in [0, 1]
+
+    - name: Inspect whether OpenZFS kernel accounting exists
+      ansible.builtin.stat:
+        path: /proc/spl/kstat/zfs
+      register: prepare_kstat
+
+    - name: Inspect the kernel's imported pool directory
+      ansible.builtin.find:
+        paths: /proc/spl/kstat/zfs
+        file_type: directory
+        recurse: false
+      register: prepare_pools
+      when: prepare_kstat.stat.isdir | default(false)
+
+    - name: Refuse preparation against already adopted storage
+      ansible.builtin.assert:
+        that:
+          - prepare_mounts.stdout | trim | length == 0
+          - prepare_pools.matched | default(0) == 0
+        fail_msg: Storage is already adopted; use normal reconciliation, not initial host preparation.
+
+    - name: Persist local logs independently of Loki availability
+      ansible.builtin.include_role:
+        name: alloy
+        tasks_from: journal
+
+    - name: Apply persistent journal configuration
+      ansible.builtin.meta: flush_handlers
+
+    - name: Prevent package and boot import before explicit adoption
+      ansible.builtin.command:
+        argv:
+          - systemctl
+          - mask
+          - zfs-import-cache.service
+          - zfs-import-scan.service
+          - zfs-import@.service
+          - zfs-import.target
+          - zfs-mount.service
+          - zfs-share.service
+          - zfs.target
+          - zfs-zed.service
+          - smartmontools.service
+          - smartd.service
+      register: prepare_masks
+      changed_when: "'Created symlink' in prepare_masks.stderr"
+
+    - name: Install signed Debian contrib sources and matching OpenZFS tooling
+      ansible.builtin.include_role:
+        name: storage
+        tasks_from: packages
+
+    - name: Load OpenZFS without importing any pool
+      ansible.builtin.command:
+        argv: [modprobe, zfs]
+      changed_when: false
+
+    - name: Verify that no pool was automatically imported
+      ansible.builtin.command:
+        argv: [zpool, list, -H, -o, name]
+      register: prepare_imported
+      changed_when: false
+      failed_when: prepare_imported.rc != 0 or prepare_imported.stdout | trim | length > 0

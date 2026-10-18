@@ -1,0 +1,106 @@
+#!/usr/bin/env bash
+
+{{ ansible_managed | comment }}
+
+set -euo pipefail
+{% set sources = backup_sources %}
+exec 9>{{ backup_lock | quote }}
+flock -n 9 || { echo "Another NAS backup is active" >&2; exit 75; }
+RESTIC={{ backup_restic_bin | quote }}
+export RESTIC_PASSWORD={{ offsite_restic_password | quote }}
+export AWS_ACCESS_KEY_ID={{ b2_account_id | quote }}
+export AWS_SECRET_ACCESS_KEY={{ b2_account_key | quote }}
+BUCKET_NAME={{ offsite_b2_bucket_name | quote }}
+S3_ENDPOINT={{ b2_s3_endpoint | quote }}
+SHARES=({% for source in sources %}{{ source.repository_prefix | quote }} {% endfor %})
+PATHS=({% for source in sources %}{% set storage = config_resolved.datasets[source.dataset_key] if source.kind == 'files' else source.capture %}{{ storage.path | quote }} {% endfor %})
+DATASETS=({% for source in sources %}{% set storage = config_resolved.datasets[source.dataset_key] if source.kind == 'files' else source.capture %}{{ storage.dataset | quote }} {% endfor %})
+GUARD={{ backup_mount_guard | quote }}
+CAPTURE_RESULT={{ backup_capture_result_bin | quote }}
+MAX_RETRIES="${MAX_RETRIES:-3}"
+BASE_RETRY_DELAY="${BASE_RETRY_DELAY:-30}"
+MAX_RETRY_DELAY="${MAX_RETRY_DELAY:-300}"
+BACKUP_TIMEOUT_SECONDS="${BACKUP_TIMEOUT_SECONDS:-7200}"
+LOCK_RETRY_DURATION="${LOCK_RETRY_DURATION:-5m}"
+metrics={{ (backup_metrics_dir ~ '/b2_backup.prom') | quote }}
+metric_tmp="$metrics.$$"
+: > "$metric_tmp"
+trap 'rm -f "$metric_tmp"; unset RESTIC_PASSWORD AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY' EXIT
+
+backup_share() {
+    local share="$1" source_path="$2" dataset="$3" attempt delay
+    for ((attempt=1; attempt<=MAX_RETRIES; attempt++)); do
+        echo "Backing up $share (attempt $attempt/$MAX_RETRIES)"
+        "$GUARD" "$source_path" "$dataset" || return 1
+        if timeout --kill-after=5m "$BACKUP_TIMEOUT_SECONDS" \
+            "$RESTIC" --retry-lock "$LOCK_RETRY_DURATION" --stuck-request-timeout 5m \
+            backup --cleanup-cache "$source_path"; then
+            return 0
+        fi
+        echo "Backup attempt failed for $share" >&2
+        if ((attempt < MAX_RETRIES)); then
+            delay=$((BASE_RETRY_DELAY * (2 ** (attempt - 1))))
+            ((delay > MAX_RETRY_DELAY)) && delay=$MAX_RETRY_DELAY
+            sleep "$delay"
+        fi
+    done
+    return 1
+}
+
+result=0
+for i in "${!SHARES[@]}"; do
+    share="${SHARES[$i]}"
+    export RESTIC_REPOSITORY="s3:$S3_ENDPOINT/$BUCKET_NAME/$share"
+    if ! "$GUARD" "${PATHS[$i]}" "${DATASETS[$i]}"; then
+        printf 'b2_backup_failed{share="%s", bucket_name="%s"} %s\n' "$share" "$BUCKET_NAME" "$(date +%s)" >> "$metric_tmp"
+        result=1
+        continue
+    fi
+    capture_ok=1
+{% for source in sources %}
+{% if source.kind == 'application_capture' %}
+    if [[ "$i" == {{ loop.index0 }} ]]; then
+        if capture_json="$({{ source.capture_command | map('quote') | join(' ') }})" &&
+            capture_path="$(printf '%s' "$capture_json" | "$CAPTURE_RESULT" "${PATHS[$i]}" "${DATASETS[$i]}")" &&
+            "$GUARD" "$capture_path" "${DATASETS[$i]}"; then
+            PATHS[$i]="$capture_path"
+        else
+            echo "Consistent immutable capture failed for $share" >&2
+            capture_ok=0
+        fi
+    fi
+{% endif %}
+{% endfor %}
+    if ((capture_ok == 0)); then
+        printf 'b2_backup_failed{share="%s", bucket_name="%s"} %s\n' "$share" "$BUCKET_NAME" "$(date +%s)" >> "$metric_tmp"
+        result=1
+        continue
+    fi
+    # Missing repositories must be initialized explicitly; connection/auth errors
+    # must never be mistaken for an uninitialized repository.
+    if ! "$RESTIC" snapshots >/dev/null; then
+        echo "Cannot open repository for $share; check credentials or initialize it explicitly" >&2
+        printf 'b2_backup_failed{share="%s", bucket_name="%s"} %s\n' "$share" "$BUCKET_NAME" "$(date +%s)" >> "$metric_tmp"
+        result=1
+        continue
+    fi
+    if backup_share "$share" "${PATHS[$i]}" "${DATASETS[$i]}"; then
+        printf 'b2_backup_completed{share="%s", bucket_name="%s"} %s\n' "$share" "$BUCKET_NAME" "$(date +%s)" >> "$metric_tmp"
+{% if backup_pruning_approved %}
+        if "$RESTIC" --retry-lock "$LOCK_RETRY_DURATION" forget --keep-daily 7 --keep-weekly 5 --keep-monthly 7 --prune; then
+            printf 'b2_cleanup_completed{share="%s", bucket_name="%s"} %s\n' "$share" "$BUCKET_NAME" "$(date +%s)" >> "$metric_tmp"
+        else
+            echo "Cleanup failed for $share" >&2
+            result=1
+        fi
+{% else %}
+        echo "Restic retention is disabled for $share until restore acceptance"
+{% endif %}
+    else
+        printf 'b2_backup_failed{share="%s", bucket_name="%s"} %s\n' "$share" "$BUCKET_NAME" "$(date +%s)" >> "$metric_tmp"
+        result=1
+    fi
+done
+chmod 0644 "$metric_tmp"
+mv "$metric_tmp" "$metrics" || exit 1
+exit "$result"

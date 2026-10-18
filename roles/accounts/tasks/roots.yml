@@ -1,0 +1,7 @@
+---
+- name: Check declared directory roots before changing metadata
+  ansible.builtin.include_tasks: directory.yml
+  loop: "{{ config_resolved.roots }}"
+  loop_control:
+    loop_var: accounts_root
+    label: "{{ accounts_root.path }}"

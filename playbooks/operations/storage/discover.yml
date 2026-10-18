@@ -1,0 +1,33 @@
+---
+- name: Discover existing NAS without changing its services
+  hosts: device_roles_storage
+  become: true
+  gather_facts: false
+  serial: 1
+  tasks:
+    - name: Require a single explicit discovery target
+      ansible.builtin.assert:
+        that:
+          - ansible_limit | default('') | length > 0
+          - ansible_limit != 'all'
+          - ansible_play_hosts_all | length == 1
+          - discovery_output | default('') is match('^/')
+        fail_msg: Specify one --limit and an absolute discovery_output outside Git.
+
+    - name: Collect sanitized read-only migration evidence
+      ansible.builtin.script:
+        cmd: "{{ playbook_dir }}/../../../scripts/discover.py"
+        executable: /usr/bin/python3
+      changed_when: false
+      check_mode: false
+      register: discovery
+      no_log: true
+
+    - name: Save restricted evidence on the controller
+      ansible.builtin.copy:
+        content: "{{ discovery.stdout | from_json | to_nice_json }}\n"
+        dest: "{{ discovery_output }}"
+        mode: "0600"
+      delegate_to: localhost
+      become: false
+      no_log: true

@@ -1,0 +1,299 @@
+---
+- name: Prepare user-owned application configuration directories
+  ansible.builtin.file:
+    path: "{{ apps_app.identity.home }}/{{ item }}"
+    state: directory
+    owner: "{{ apps_app.account }}"
+    group: "{{ apps_app.account }}"
+    mode: "0700"
+  loop: [.config, .config/containers, .config/containers/systemd, .config/containers/candidate, .config/apps]
+
+- name: Configure crun and journald for this rootless account
+  ansible.builtin.copy:
+    content: |
+      [engine]
+      runtime = "crun"
+      [containers]
+      log_driver = "journald"
+    dest: "{{ apps_app.identity.home }}/.config/containers/containers.conf"
+    owner: "{{ apps_app.account }}"
+    group: "{{ apps_app.account }}"
+    mode: "0600"
+
+- name: Keep rootless overlay storage on this application's boot-filesystem home
+  ansible.builtin.copy:
+    content: |
+      [storage]
+      driver = "overlay"
+      graphroot = "{{ apps_app.identity.home }}/.local/share/containers/storage"
+      runroot = "/run/user/{{ apps_app.identity.uid }}/containers"
+    dest: "{{ apps_app.identity.home }}/.config/containers/storage.conf"
+    owner: "{{ apps_app.account }}"
+    group: "{{ apps_app.account }}"
+    mode: "0600"
+
+- name: Configure only Jellyfin GPU access
+  ansible.builtin.include_tasks: gpu.yml
+  when: apps_app.name == 'jellyfin'
+
+- name: Add explicitly reviewed supplementary share-access groups
+  ansible.builtin.user:
+    name: "{{ apps_app.account }}"
+    groups: "{{ apps_app.supplementary_groups | join(',') }}"
+    append: true
+  when: apps_app.supplementary_groups | default([]) | length > 0
+  notify: Refresh application user managers
+
+- name: Apply application group memberships before deployment
+  ansible.builtin.meta: flush_handlers
+
+- name: Verify the backing dataset before creating disposable app directories
+  ansible.builtin.command:
+    argv: ["{{ apps_mount_guard }}", "{{ item.path | dirname }}", "{{ item.dataset }}"]
+  loop: "{{ apps_app.mounts | selectattr('create_directory', 'defined') | selectattr('create_directory') | list }}"
+  loop_control:
+    label: "{{ item.path }}"
+  changed_when: false
+  check_mode: false
+
+- name: Create only declared disposable application directories
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: directory
+    owner: "{{ apps_app.account }}"
+    group: "{{ apps_app.account }}"
+    mode: "0700"
+  loop: "{{ apps_app.mounts | selectattr('create_directory', 'defined') | selectattr('create_directory') | list }}"
+  loop_control:
+    label: "{{ item.path }}"
+
+- name: Inspect required restored application state
+  ansible.builtin.stat:
+    path: "{{ item.0.path }}/{{ item.1 }}"
+  become: true
+  become_user: "{{ apps_app.account }}"
+  loop: "{{ apps_app.mounts | subelements('required_files', skip_missing=true) }}"
+  loop_control:
+    label: "{{ item.0.path }}/{{ item.1 }}"
+  register: apps_required_state
+
+- name: Require restored application state before starting containers
+  ansible.builtin.assert:
+    that: item.stat.exists
+    fail_msg: "Restore missing application state: {{ item.item.0.path }}/{{ item.item.1 }}"
+  loop: "{{ apps_required_state.results }}"
+  loop_control:
+    label: "{{ item.item.0.path }}/{{ item.item.1 }}"
+
+- name: Prepare private storage for the original Prometheus configuration
+  ansible.builtin.file:
+    path: "{{ apps_app.identity.home }}/.source-configuration"
+    state: directory
+    owner: root
+    group: root
+    mode: "0700"
+  when: apps_app.name == 'prometheus'
+
+- name: Check for the previously preserved Prometheus configuration
+  ansible.builtin.stat:
+    path: "{{ apps_app.identity.home }}/.source-configuration/prometheus-source.tar"
+    get_checksum: false
+  register: apps_prometheus_archive
+  when: apps_app.name == 'prometheus'
+
+- name: Preserve imported Prometheus configuration before its first replacement
+  community.general.archive:
+    path: "{{ (apps_app.mounts | selectattr('target', 'equalto', '/config') | first).path }}/"
+    dest: "{{ apps_app.identity.home }}/.source-configuration/prometheus-source.tar"
+    format: tar
+    owner: root
+    group: root
+    mode: "0600"
+  when:
+    - apps_app.name == 'prometheus'
+    - not apps_prometheus_archive.stat.exists
+
+- name: Stage repository-owned Prometheus configuration for validation
+  ansible.builtin.template:
+    src: prometheus.yml.j2
+    dest: "{{ (apps_app.mounts | selectattr('target', 'equalto', '/config') | first).path }}/.prometheus.yml.candidate"
+    owner: "{{ apps_app.account }}"
+    group: "{{ apps_app.account }}"
+    mode: "0600"
+  when: apps_app.name == 'prometheus'
+
+- name: Require securely recovered source WebDAV credentials
+  ansible.builtin.assert:
+    that:
+      - apps_webdav_htpasswd | length > 0
+      - "':' in apps_webdav_htpasswd"
+    fail_msg: "Recover the existing /etc/apache2/webdavhtbasic into vault_nas_webdav_htpasswd; do not reset DAV credentials."
+  when: apps_app.name == 'webdav'
+  no_log: true
+
+- name: Stage the restricted Vault-backed WebDAV password file
+  ansible.builtin.copy:
+    content: "{{ apps_webdav_htpasswd }}"
+    dest: "{{ apps_app.identity.home }}/.config/apps/.webdavhtbasic.candidate"
+    owner: "{{ apps_app.account }}"
+    group: "{{ apps_app.account }}"
+    mode: "0600"
+  when: apps_app.name == 'webdav'
+  no_log: true
+
+- name: Stage the discovered Apache DAV client contract
+  ansible.builtin.template:
+    src: httpd.conf.j2
+    dest: "{{ apps_app.identity.home }}/.config/apps/.httpd.conf.candidate"
+    owner: "{{ apps_app.account }}"
+    group: "{{ apps_app.account }}"
+    mode: "0600"
+  when: apps_app.name == 'webdav'
+
+- name: Manage containers through the dedicated rootless user environment
+  become: true
+  become_user: "{{ apps_app.account }}"
+  environment:
+    HOME: "{{ apps_app.identity.home }}"
+    XDG_RUNTIME_DIR: "/run/user/{{ apps_app.identity.uid }}"
+    DBUS_SESSION_BUS_ADDRESS: "unix:path=/run/user/{{ apps_app.identity.uid }}/bus"
+  block:
+    - name: Check for the exact source-compatible image
+      ansible.builtin.command:
+        argv: [podman, image, exists, "{{ apps_app.runtime_image }}"]
+      changed_when: false
+      failed_when: apps_image.rc not in [0, 1]
+      register: apps_image
+      check_mode: false
+
+    - name: Prepull only a missing pinned image during controlled deployment
+      ansible.builtin.command:
+        argv: [podman, pull, "{{ apps_app.runtime_image }}"]
+      when: apps_image.rc != 0
+      changed_when: true
+
+    - name: Validate Prometheus without mounting the production TSDB
+      ansible.builtin.command:
+        argv:
+          - podman
+          - run
+          - --rm
+          - --pull=never
+          - --network=host
+          - --log-driver=journald
+          - "--userns=keep-id:uid={{ apps_app.container_uid }},gid={{ apps_app.container_gid }}"
+          - "--user={{ apps_app.container_uid }}:{{ apps_app.container_gid }}"
+          - --volume
+          - "{{ (apps_app.mounts | selectattr('target', 'equalto', '/config') | first).path }}:/config:ro"
+          - --entrypoint=/bin/promtool
+          - "{{ apps_app.runtime_image }}"
+          - check
+          - config
+          - /config/.prometheus.yml.candidate
+      when: apps_app.name == 'prometheus'
+      changed_when: false
+      check_mode: false
+
+    - name: Validate any explicitly configured Prometheus rule files
+      ansible.builtin.command:
+        argv: >-
+          {{ ['podman', 'run', '--rm', '--pull=never', '--network=none', '--log-driver=journald',
+              '--userns=keep-id:uid=' ~ apps_app.container_uid ~ ',gid=' ~ apps_app.container_gid,
+              '--user=' ~ apps_app.container_uid ~ ':' ~ apps_app.container_gid, '--volume',
+              (apps_app.mounts | selectattr('target', 'equalto', '/config') | first).path ~ ':/config:ro',
+              '--entrypoint=/bin/promtool', apps_app.runtime_image, 'check', 'rules'] + apps_app.rule_files }}
+      when: apps_app.name == 'prometheus' and apps_app.rule_files | default([]) | length > 0
+      changed_when: false
+      check_mode: false
+
+    - name: Validate Apache configuration with the pinned source image
+      ansible.builtin.command:
+        argv: >-
+          {{ ['podman', 'run', '--rm', '--pull=never', '--network=none', '--log-driver=journald',
+              '--userns=keep-id:uid=' ~ apps_app.container_uid ~ ',gid=' ~ apps_app.container_gid,
+              '--user=' ~ apps_app.container_uid ~ ':' ~ apps_app.container_gid, '--volume',
+              apps_app.identity.home ~ '/.config/apps/.httpd.conf.candidate:/usr/local/apache2/conf/httpd.conf:ro',
+              '--volume', apps_app.identity.home ~ '/.config/apps/.webdavhtbasic.candidate:/etc/apache2/webdavhtbasic:ro']
+             + (apps_app.mounts | readonly_mount_args)
+             + ['--entrypoint=/usr/local/apache2/bin/httpd', apps_app.runtime_image, '-t'] }}
+      when: apps_app.name == 'webdav'
+      changed_when: false
+      check_mode: false
+
+    - name: Atomically publish validated Prometheus configuration
+      ansible.builtin.copy:
+        src: "{{ (apps_app.mounts | selectattr('target', 'equalto', '/config') | first).path }}/.prometheus.yml.candidate"
+        dest: "{{ (apps_app.mounts | selectattr('target', 'equalto', '/config') | first).path }}/prometheus.yml"
+        remote_src: true
+        mode: "0600"
+      when: apps_app.name == 'prometheus'
+      register: apps_prometheus_config
+
+    - name: Publish the validated Apache DAV configuration
+      ansible.builtin.copy:
+        src: "{{ apps_app.identity.home }}/.config/apps/.httpd.conf.candidate"
+        dest: "{{ apps_app.identity.home }}/.config/apps/httpd.conf"
+        remote_src: true
+        mode: "0600"
+      when: apps_app.name == 'webdav'
+      register: apps_webdav_config
+
+    - name: Publish the restricted source-compatible DAV password file
+      ansible.builtin.copy:
+        src: "{{ apps_app.identity.home }}/.config/apps/.webdavhtbasic.candidate"
+        dest: "{{ apps_app.identity.home }}/.config/apps/webdavhtbasic"
+        remote_src: true
+        mode: "0600"
+      when: apps_app.name == 'webdav'
+      no_log: true
+      register: apps_webdav_auth
+
+    - name: Stage the native Quadlet for installed-generator validation
+      ansible.builtin.template:
+        src: app.container.j2
+        dest: "{{ apps_app.identity.home }}/.config/containers/candidate/{{ apps_app.name }}.container"
+        mode: "0600"
+
+    - name: Validate native Quadlet using Debian's packaged user generator
+      ansible.builtin.command:
+        argv: [/usr/lib/systemd/system-generators/podman-system-generator, --user, --dryrun]
+      environment:
+        QUADLET_UNIT_DIRS: "{{ apps_app.identity.home }}/.config/containers/candidate"
+      register: apps_quadlet_check
+      changed_when: false
+      check_mode: false
+
+    - name: Require a generated service, not a silently skipped invalid Quadlet
+      ansible.builtin.assert:
+        that:
+          - "(apps_app.name ~ '.service') in apps_quadlet_check.stdout"
+          - "'unsupported key' not in apps_quadlet_check.stderr | lower"
+
+    - name: Activate only the validated Quadlet source
+      ansible.builtin.copy:
+        src: "{{ apps_app.identity.home }}/.config/containers/candidate/{{ apps_app.name }}.container"
+        dest: "{{ apps_app.identity.home }}/.config/containers/systemd/{{ apps_app.name }}.container"
+        remote_src: true
+        mode: "0600"
+      register: apps_quadlet
+
+    - name: Reload and start generated user services without enabling transient units
+      ansible.builtin.systemd_service:
+        scope: user
+        daemon_reload: true
+        name: "{{ apps_app.name }}.service"
+        state: >-
+          {{ 'restarted' if (apps_quadlet.changed
+               or apps_prometheus_config.changed | default(false)
+               or apps_webdav_config.changed | default(false)
+               or apps_webdav_auth.changed | default(false)) else 'started' }}
+
+- name: Verify application listener and source-compatible authentication boundary
+  ansible.builtin.uri:
+    url: "{{ apps_app.readiness_url }}"
+    status_code: "{{ apps_app.readiness_status | default(200) }}"
+    return_content: false
+  register: apps_readiness
+  until: apps_readiness is succeeded
+  retries: 12
+  delay: 10

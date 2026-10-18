@@ -1,0 +1,20 @@
+---
+- name: Restore each declared state mount into an independent protected clone
+  ansible.builtin.command:
+    cmd: /usr/local/libexec/clone-app-state
+    stdin: >-
+      {{ {'confirm': 'clone-stopped-app-state',
+          'sources_stopped': apps_import_sources_stopped | bool,
+          'backups_verified': apps_import_backups_verified | bool,
+          'migration': apps_clone_migration,
+          'mount_guard': apps_mount_guard,
+          'mounts': [apps_clone_sources[item.import_name] | combine({
+            'dataset': item.dataset, 'path': item.path,
+            'mountpoint': item.path | zfs_mountpoint(item.dataset, storage_pools),
+            'import_name': item.import_name, 'required_files': item.required_files | default([]),
+            'uid': apps_app.identity.uid, 'gid': apps_app.identity.gid})]} | to_json }}
+  loop: "{{ apps_app.mounts | selectattr('require_import', 'defined') | selectattr('require_import') | list }}"
+  loop_control:
+    label: "{{ item.import_name }}"
+  register: apps_clone_result
+  changed_when: "'Restored protected clone' in apps_clone_result.stdout"

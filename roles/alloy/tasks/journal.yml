@@ -1,0 +1,26 @@
+---
+- name: Create the persistent journal policy directory
+  ansible.builtin.file:
+    path: /etc/systemd/journald.conf.d
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Persist system and user journals on the boot filesystem
+  ansible.builtin.file:
+    path: /var/log/journal
+    state: directory
+    owner: root
+    group: systemd-journal
+    mode: "2755"
+  notify: Restart persistent NAS journal
+
+- name: Configure bounded persistent journal storage
+  ansible.builtin.template:
+    src: journald.conf.j2
+    dest: /etc/systemd/journald.conf.d/60-alloy.conf
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart persistent NAS journal

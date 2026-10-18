@@ -1,8 +1,17 @@
 ---
-- name: Install NUT
+- name: Install NUT on Debian without starting unconfigured services
+  ansible.builtin.apt:
+    name: [nut, sudo]
+    state: present
+    policy_rc_d: 101
+    lock_timeout: 120
+  when: ansible_facts['os_family'] == 'Debian'
+
+- name: Install NUT on FreeBSD
   ansible.builtin.package:
     name: [nut, sudo]
     state: present
+  when: ansible_facts['os_family'] == 'FreeBSD'
 
 - name: Create NUT configuration directory
   ansible.builtin.file:
@@ -37,7 +46,9 @@
     mode: "0640"
   loop: [ups.conf, upsd.conf, upsd.users]
   no_log: true
-  notify: Restart NUT
+  notify:
+    - Refresh NUT driver enumeration
+    - Restart NUT
 
 - name: Configure UPS monitor
   ansible.builtin.template:
@@ -109,6 +120,78 @@
   ansible.builtin.systemd_service:
     name: nut-driver.service
     masked: false
+
+- name: Reload packaged USB access rules for the primary UPS
+  ansible.builtin.command:
+    argv: [udevadm, control, --reload-rules]
+  changed_when: false
+  when:
+    - ansible_facts['os_family'] == 'Debian'
+    - nut_mode == 'primary'
+    - nut_usb_devices | length > 0
+
+- name: Apply packaged USB permissions only to the selected UPS devices
+  ansible.builtin.command:
+    argv:
+      - udevadm
+      - trigger
+      - --subsystem-match=usb
+      - "--attr-match=idVendor={{ item.vendor }}"
+      - "--attr-match=idProduct={{ item.product }}"
+      - --action=change
+  loop: "{{ nut_usb_devices }}"
+  changed_when: false
+  when:
+    - ansible_facts['os_family'] == 'Debian'
+    - nut_mode == 'primary'
+
+- name: Wait for selected UPS device access rules
+  ansible.builtin.command:
+    argv: [udevadm, settle, --timeout=30]
+  changed_when: false
+  when:
+    - ansible_facts['os_family'] == 'Debian'
+    - nut_mode == 'primary'
+    - nut_usb_devices | length > 0
+
+- name: Enable packaged driver enumeration at primary UPS boot
+  ansible.builtin.systemd_service:
+    name: nut-driver-enumerator.service
+    enabled: true
+  when:
+    - ansible_facts['os_family'] == 'Debian'
+    - nut_mode == 'primary'
+    - "'nut-driver-enumerator.service' in ansible_facts['services']"
+
+- name: Enumerate configured UPS drivers before starting the server
+  ansible.builtin.systemd_service:
+    name: nut-driver-enumerator.service
+    state: started
+  when:
+    - ansible_facts['os_family'] == 'Debian'
+    - nut_mode == 'primary'
+    - "'nut-driver-enumerator.service' in ansible_facts['services']"
+    - ansible_facts['services'].keys() | select('match', '^nut-driver@.+[.]service$') | list | length == 0
+
+- name: Enable packaged UPS configuration change detection
+  ansible.builtin.systemd_service:
+    name: nut-driver-enumerator.path
+    enabled: true
+    state: started
+  when:
+    - ansible_facts['os_family'] == 'Debian'
+    - nut_mode == 'primary'
+    - "'nut-driver-enumerator.service' in ansible_facts['services']"
+
+- name: Enable the packaged primary UPS boot target
+  ansible.builtin.systemd_service:
+    name: nut.target
+    enabled: true
+    state: started
+  when:
+    - ansible_facts['os_family'] == 'Debian'
+    - nut_mode == 'primary'
+    - "'nut-driver-enumerator.service' in ansible_facts['services']"
 
 - name: Enable NUT services
   ansible.builtin.service:

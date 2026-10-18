@@ -4,9 +4,77 @@ b2_account_id: "{{ vault_b2_account_id }}"
 b2_account_key: "{{ vault_b2_account_key }}"
 b2_s3_endpoint: "{{ vault_b2_s3_endpoint }}"
 offsite_b2_bucket_name: "brickyard-woodlandpark-restic"
-truenas_backup_shares:
-  - Photos
-  - Docs
-  - Mel
-  - Tom
-  - Archive
+storage_pools:
+  tank:
+    guid: "5003749419009593114"
+    altroot: /mnt
+    mountpoint: /mnt/tank
+accounts_groups:
+  tom: 3000
+  mel: 3001
+  longhorn: 3002
+  uprotect: 3003
+  databasus: 3004
+  server-backups: 3005
+  nas-users: 3006
+  nas-media: 3007
+  nas-seed: 1000
+  operator: 37
+  nas-webdav: "{{ (apps_accounts | selectattr('name', 'equalto', 'nas-webdav') | first).gid }}"
+  staff: 50
+  nogroup: 65534
+accounts_users:
+  tom:
+    uid: 3000
+    group: tom
+    groups: [mel, staff, nas-users, nas-media]
+    shell: /usr/bin/zsh
+    home: /home/tom
+    ssh_access: true
+    smb: true
+  mel:
+    uid: 3001
+    group: mel
+    groups: [staff, nas-users, nas-media]
+    smb: true
+  longhorn:
+    uid: 3002
+    group: longhorn
+    groups: [server-backups, nas-users, nas-media]
+    smb: true
+  uprotect:
+    uid: 3003
+    group: uprotect
+    groups: [server-backups, nas-users, nas-media]
+    smb: true
+  databasus:
+    uid: 3004
+    group: databasus
+    groups: [server-backups, nas-users, nas-media]
+    smb: true
+  media:
+    uid: 8675309
+    group: nogroup
+    groups: [staff]
+    smb: false
+  nobody:
+    uid: 65534
+    group: nogroup
+    home: /nonexistent
+    password_lock: true
+    smb: false
+  nas-seed:
+    uid: 1000
+    group: nas-seed
+    home: /nonexistent
+    password_lock: true
+    smb: false
+  nas-webdav:
+    uid: "{{ (apps_accounts | selectattr('name', 'equalto', 'nas-webdav') | first).uid }}"
+    group: nas-webdav
+    home: "{{ (apps_accounts | selectattr('name', 'equalto', 'nas-webdav') | first).home }}"
+    password_lock: true
+    smb: false
+accounts_smb_passwords: "{{ vault_nas_smb_passwords }}"
+nut_shutdown_delay: 120
+nut_timed_shutdown_enabled: true
