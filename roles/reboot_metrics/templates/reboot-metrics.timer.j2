@@ -1,0 +1,10 @@
+[Unit]
+Description=Refresh reboot-required metrics every minute
+
+[Timer]
+OnBootSec=15s
+OnUnitActiveSec=1min
+Unit=reboot-metrics.service
+
+[Install]
+WantedBy=timers.target

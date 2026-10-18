@@ -1,0 +1,19 @@
+#!/bin/sh
+set -eu
+
+metrics_dir=$1
+marker=$2
+required=0
+if [ -e "$marker" ]; then
+    required=1
+fi
+
+temporary=$(mktemp "$metrics_dir/.reboot_required.XXXXXX")
+trap 'rm -f "$temporary"' EXIT HUP INT TERM
+{
+    printf '# HELP node_reboot_required Whether the host requires a reboot (1 = required, 0 = not required).\n'
+    printf '# TYPE node_reboot_required gauge\n'
+    printf 'node_reboot_required %s\n' "$required"
+} > "$temporary"
+chmod 0644 "$temporary"
+mv -f "$temporary" "$metrics_dir/reboot_required.prom"
