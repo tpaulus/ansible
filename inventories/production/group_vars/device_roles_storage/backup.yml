@@ -4,6 +4,7 @@ nut_usb_devices:
   - {vendor: "051d", product: "0003"}
 # Enable scheduled backups; retention/pruning remains separately gated.
 backup_timer_enabled: true
+backup_pruning_approved: true
 backup_sources:
   - {key: photos, dataset_key: photos, repository_prefix: Photos, kind: files}
   - {key: docs, dataset_key: docs, repository_prefix: Docs, kind: files}
@@ -12,37 +13,30 @@ backup_sources:
   - {key: archive, dataset_key: archive, repository_prefix: Archive, kind: files}
   - key: jellyfin
     app: jellyfin
-    kind: application_capture
+    kind: app_snapshot
     repository_prefix: Jellyfin
-    capture: "{{ apps_captures.jellyfin }}"
-    capture_command: [/usr/local/sbin/capture-app, jellyfin]
+    snapshot: "{{ apps_snapshots.jellyfin }}"
   - key: prometheus
     app: prometheus
-    kind: application_capture
+    kind: app_snapshot
     repository_prefix: Prometheus
-    capture: "{{ apps_captures.prometheus }}"
-    capture_command: [/usr/local/sbin/capture-app, prometheus]
+    snapshot: "{{ apps_snapshots.prometheus }}"
   - key: webdav
     app: webdav
-    kind: application_capture
+    kind: app_snapshot
     repository_prefix: WebDAV
-    capture: "{{ apps_captures.webdav }}"
-    capture_command: [/usr/local/sbin/capture-app, webdav]
+    snapshot: "{{ apps_snapshots.webdav }}"
 # Original post-hook only published this role's managed completion metric.
 backup_cloud_sync_enabled: true
 backup_cloud_sync_deletion_approved: true
 backup_cloud_sync_dataset_key: server_backups
+backup_cloud_sync_source_keys: [homeassistant, db_dumps, k3s_etcd]
 backup_cloud_sync_bucket: woodland-park-hosted-server-backups
 backup_cloud_sync_remote_path: ""
 backup_cloud_sync_b2_account_id: "{{ vault_nas_backup_cloud_sync_b2_account_id }}"
 backup_cloud_sync_b2_account_key: "{{ vault_nas_backup_cloud_sync_b2_account_key }}"
 backup_cloud_sync_crypt_password: "{{ vault_nas_backup_cloud_sync_crypt_password }}"
 backup_cloud_sync_crypt_salt: "{{ vault_nas_backup_cloud_sync_crypt_salt }}"
-backup_cloud_sync_filters:
-  - "+ /HomeAssistant/**"
-  - "+ /db-dumps/**"
-  - "+ /k3s-etcd/**"
-  - "- /**"
 maintenance_snapshots:
   - dataset_key: server_backups
     hourly: 168
@@ -53,47 +47,3 @@ maintenance_snapshots:
     hourly: 0
     daily: 14
     recursive: false
-maintenance_disks:
-  - id: S2WANP0J407340B
-    path: /dev/disk/by-id/ata-Samsung_Portable_SSD_T3_S2WANP0J407340B
-    serial: S2WANP0J407340B
-    device_type: sat
-    role: boot
-  # Retain monitoring while the old TrueNAS rollback disk remains attached.
-  - id: S64CNU0T805020L
-    path: /dev/disk/by-id/ata-Samsung_SSD_980_250GB_S64CNU0T805020L
-    serial: S64CNU0T805020L
-    device_type: sntrealtek
-    role: boot
-  - id: ZPW0E7FK
-    path: /dev/disk/by-id/ata-ST10000VN0008-2JJ101_ZPW0E7FK
-    serial: ZPW0E7FK
-    role: data
-  - id: ZS501TY4
-    path: /dev/disk/by-id/ata-ST10000VN0008-2PJ103_ZS501TY4
-    serial: ZS501TY4
-    role: data
-  - id: ZS501T84
-    path: /dev/disk/by-id/ata-ST10000VN0008-2PJ103_ZS501T84
-    serial: ZS501T84
-    role: data
-  - id: ZPW0E802
-    path: /dev/disk/by-id/ata-ST10000VN0008-2JJ101_ZPW0E802
-    serial: ZPW0E802
-    role: data
-  - id: ZL00NZ5K
-    path: /dev/disk/by-id/ata-ST10000VN0008-2JJ101_ZL00NZ5K
-    serial: ZL00NZ5K
-    role: data
-  - id: ZS502E1J
-    path: /dev/disk/by-id/ata-ST10000VN0008-2PJ103_ZS502E1J
-    serial: ZS502E1J
-    role: data
-  - id: HKR030C8
-    path: /dev/disk/by-id/ata-ZA960NM10001_HKR030C8
-    serial: HKR030C8
-    role: special
-  - id: HKR02ZDN
-    path: /dev/disk/by-id/ata-ZA960NM10001_HKR02ZDN
-    serial: HKR02ZDN
-    role: special

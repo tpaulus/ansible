@@ -1,6 +1,7 @@
 #!/usr/bin/python3
-"""Capture only reviewed app state from clean stopped ZFS snapshots."""
+"""Create app-consistent snapshots and expire only this helper's retained state."""
 import datetime
+import fcntl
 import json
 import os
 from pathlib import Path
@@ -37,7 +38,7 @@ def service_state(config):
 
 
 def preflight(config):
-    target = config["capture"]
+    target = config["snapshot"]
     root = Path(target["path"])
     if (type(target.get("minimum_free_bytes")) is not int
             or target["minimum_free_bytes"] <= 0):
@@ -56,7 +57,7 @@ def preflight(config):
         path = Path(source["path"])
         if (path.resolve() != path or not path.is_dir()
                 or path == root or path.is_relative_to(root) or root.is_relative_to(path)):
-            raise ValueError("Capture source/staging must be independent real directories")
+            raise ValueError("App-snapshot source/staging must be independent real directories")
         if source["dataset"] == target["dataset"]:
             raise ValueError("Staging cannot be inside a source dataset")
         arguments.extend([str(path), source["dataset"]])
@@ -69,7 +70,7 @@ def preflight(config):
                 raise ValueError("Required source state is missing or escapes the source")
         mountpoint = execute(["zfs", "get", "-Hp", "-o", "value", "mountpoint", source["dataset"]])
         if mountpoint.stdout.strip() != str(path):
-            raise ValueError("Each capture source must be its exact ZFS dataset mountpoint")
+            raise ValueError("Each snapshot source must be its exact ZFS dataset mountpoint")
     execute(arguments)
     for filename in config["private_files"]:
         path = Path(filename)
@@ -93,7 +94,7 @@ def wait_ready(config):
             return
         if attempt < 23:
             time.sleep(5)
-    raise ValueError("Application did not become ready after capture restart")
+    raise ValueError("Application did not become ready after snapshot restart")
 
 
 def rsync_arguments(source, destination, previous=None):
@@ -107,35 +108,112 @@ def rsync_arguments(source, destination, previous=None):
     return arguments + ["--", str(source) + "/", str(destination) + "/"]
 
 
-def previous_generation(config):
-    root = Path(config["capture"]["path"])
-    marker = root / "capture.json"
+def published_generation(config, filename):
+    root = Path(config["snapshot"]["path"])
+    marker = root / filename
     if not marker.exists():
         return None
     if marker.is_symlink():
-        raise ValueError("Published capture manifest must not be a symlink")
+        raise ValueError("Published app-snapshot manifest must not be a symlink")
     previous = json.loads(marker.read_text())
     path = Path(previous["path"])
     if (previous.get("completed") is not True
-            or previous.get("dataset") != config["capture"]["dataset"]
-            or path.parent != root / "captures" or path.resolve() != path or not path.is_dir()):
+            or previous.get("dataset") != config["snapshot"]["dataset"]
+            or path.parent not in (root / "snapshots", root / "captures")
+            or path.resolve() != path or not path.is_dir()):
         raise ValueError("Previous published generation is invalid")
     return path
 
 
-def perform_capture(config):
+def previous_generation(config):
+    return (published_generation(config, "snapshot.json")
+            or published_generation(config, "capture.json"))
+
+
+GENERATION = re.compile(r"^(\d{8}T\d{6}Z)-[a-f0-9]{32}$")
+
+
+def generation_time(name):
+    match = GENERATION.fullmatch(name)
+    if not match:
+        raise ValueError(f"Unrecognized app-snapshot generation: {name}")
+    return datetime.datetime.strptime(match[1], "%Y%m%dT%H%M%SZ").replace(
+        tzinfo=datetime.timezone.utc).timestamp()
+
+
+def prune(config, now=None):
+    target = config["snapshot"]
+    root = Path(target["path"])
+    days = config["retention_days"]
+    if type(days) is not int or days < 1:
+        raise ValueError("App-snapshot retention must be positive days")
+    if root.resolve() != root or not root.is_dir():
+        raise ValueError("Snapshot root is missing or symlinked")
+    info = root.stat()
+    if info.st_uid != os.geteuid() or stat.S_IMODE(info.st_mode) & 0o077:
+        raise ValueError("Snapshot root is not private to the running user")
+    execute([config["mount_guard"], str(root), target["dataset"]])
+    cutoff = (time.time() if now is None else now) - days * 86400
+    published = {
+        name: published_generation(config, name)
+        for name in ("snapshot.json", "capture.json")
+    }
+    for directory in ("snapshots", "captures", "pending"):
+        parent = root / directory
+        if not parent.exists():
+            continue
+        if parent.resolve() != parent or not parent.is_dir():
+            raise ValueError("Generation parent is not a real directory")
+        for path in parent.iterdir():
+            created = generation_time(path.name)
+            if path.resolve() != path or not path.is_dir():
+                raise ValueError("Snapshot generation is not a real directory")
+            if created >= cutoff:
+                continue
+            execute([config["mount_guard"], str(path), target["dataset"]])
+            # Refuse nested mounts before deleting a specific owned generation.
+            for base, directories, _files in os.walk(path, followlinks=False):
+                for entry in [Path(base)] + [Path(base) / name for name in directories]:
+                    if not entry.is_symlink() and entry.stat().st_dev != root.stat().st_dev:
+                        raise ValueError("Nested filesystem in snapshot generation")
+            for filename, generation in published.items():
+                if generation == path:
+                    (root / filename).unlink()
+            shutil.rmtree(path)
+    datasets = config["sources"] + target.get("retired_datasets", [])
+    for source in datasets:
+        execute([config["mount_guard"], source["path"], source["dataset"]])
+        listing = execute([
+            "zfs", "list", "-Hp", "-t", "snapshot", "-o", "name,creation",
+            "-d", "1", source["dataset"],
+        ])
+        for line in listing.stdout.splitlines():
+            name, created = line.split("\t")
+            dataset, suffix = name.split("@", 1)
+            if dataset != source["dataset"]:
+                continue
+            for prefix in ("app-snapshot-", "nas-app-capture-"):
+                if suffix.startswith(prefix):
+                    generation_time(suffix.removeprefix(prefix))
+                    if int(created) < cutoff:
+                        execute(["zfs", "destroy", name])
+                    break
+
+
+def perform_snapshot(config):
+    prune(config)
     preflight(config)
-    root = Path(config["capture"]["path"])
+    root = Path(config["snapshot"]["path"])
     previous = previous_generation(config)
-    capture_id = datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%dT%H%M%SZ") + "-" + uuid.uuid4().hex
-    snapshot = "nas-app-capture-" + capture_id
-    pending = root / "pending" / capture_id
+    snapshot_id = datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%dT%H%M%SZ") + "-" + uuid.uuid4().hex
+    snapshot = "app-snapshot-" + snapshot_id
+    pending = root / "pending" / snapshot_id
     pending.mkdir(parents=True, mode=0o700)
     metadata = pending / "metadata"
     metadata.mkdir(mode=0o700)
     state = service_state(config)
     if state.get("ActiveState") not in ("active", "inactive"):
-        raise ValueError("Application is failed or transitioning; investigate before capture")
+        raise ValueError("Application is failed or transitioning; investigate before snapshot")
     resume = state["ActiveState"] == "active"
     try:
         if resume:
@@ -171,17 +249,17 @@ def perform_capture(config):
             raise ValueError("Cannot establish the copy capacity estimate")
         estimated_bytes += int(match[1].replace(",", ""))
         transfers.append(arguments)
-    if shutil.disk_usage(root).free < estimated_bytes + config["capture"]["minimum_free_bytes"]:
+    if shutil.disk_usage(root).free < estimated_bytes + config["snapshot"]["minimum_free_bytes"]:
         raise ValueError("Insufficient staging capacity for changed files plus the reviewed reserve")
     for arguments in transfers:
-        execute([config["mount_guard"], str(root), config["capture"]["dataset"]])
+        execute([config["mount_guard"], str(root), config["snapshot"]["dataset"]])
         execute(arguments)
-    if shutil.disk_usage(root).free < config["capture"]["minimum_free_bytes"]:
-        raise ValueError("Capture exhausted the reviewed reserve")
-    execute([config["mount_guard"], str(root), config["capture"]["dataset"]])
+    if shutil.disk_usage(root).free < config["snapshot"]["minimum_free_bytes"]:
+        raise ValueError("App snapshot exhausted the reviewed reserve")
+    execute([config["mount_guard"], str(root), config["snapshot"]["dataset"]])
     result = {
-        "path": str(root / "captures" / capture_id),
-        "dataset": config["capture"]["dataset"], "completed": True,
+        "path": str(root / "snapshots" / snapshot_id),
+        "dataset": config["snapshot"]["dataset"], "completed": True,
     }
     manifest = {
         **result, "app": config["name"], "image": config["image"],
@@ -189,44 +267,68 @@ def perform_capture(config):
         "snapshots": [f"{source['dataset']}@{snapshot}" for source in config["sources"]],
         "private_files": config["private_files"],
     }
-    (metadata / "capture.json").write_text(json.dumps(manifest, indent=2) + "\n")
-    (metadata / "capture.json").chmod(0o600)
-    (root / "captures").mkdir(exist_ok=True, mode=0o700)
+    (metadata / "snapshot.json").write_text(json.dumps(manifest, indent=2) + "\n")
+    (metadata / "snapshot.json").chmod(0o600)
+    (root / "snapshots").mkdir(exist_ok=True, mode=0o700)
     pending.rename(result["path"])
-    publication = root / f".capture-{capture_id}.json"
+    publication = root / f".snapshot-{snapshot_id}.json"
     with publication.open("x") as handle:
         handle.write(json.dumps(result) + "\n")
         handle.flush()
         os.fsync(handle.fileno())
     publication.chmod(0o600)
-    publication.replace(root / "capture.json")
+    publication.replace(root / "snapshot.json")
     return result
 
 
 def interrupted(signum, _frame):
-    raise InterruptedError(f"Capture interrupted by signal {signum}")
+    raise InterruptedError(f"App snapshot interrupted by signal {signum}")
+
+
+def load_config(config_path):
+    info = config_path.stat()
+    if config_path.is_symlink() or info.st_uid != 0 or stat.S_IMODE(info.st_mode) & 0o077:
+        raise ValueError("App-snapshot configuration must be a restricted root-owned file")
+    return json.loads(config_path.read_text())
+
+
+def locked(config, operation):
+    if config["name"] not in ("jellyfin", "prometheus", "webdav"):
+        raise ValueError("Unknown snapshot application")
+    with open(f"/run/lock/app-snapshots-{config['name']}.lock", "w") as handle:
+        fcntl.flock(handle, fcntl.LOCK_EX)
+        return operation(config)
 
 
 def main():
-    if len(sys.argv) != 2 or sys.argv[1] not in ("jellyfin", "prometheus", "webdav"):
-        raise ValueError("usage: capture-app jellyfin|prometheus|webdav")
+    if len(sys.argv) != 2 or sys.argv[1] not in ("jellyfin", "prometheus", "webdav", "prune-all"):
+        raise ValueError("usage: app-snapshots jellyfin|prometheus|webdav|prune-all")
     if os.geteuid() != 0:
-        raise ValueError("Application captures require root")
+        raise ValueError("App snapshots require root")
     os.umask(0o077)
     signal.signal(signal.SIGTERM, interrupted)
     signal.signal(signal.SIGINT, interrupted)
-    config_path = Path("/etc/apps/capture.d") / f"{sys.argv[1]}.json"
-    info = config_path.stat()
-    if config_path.is_symlink() or info.st_uid != 0 or stat.S_IMODE(info.st_mode) & 0o077:
-        raise ValueError("Capture configuration must be a restricted root-owned file")
-    config = json.loads(config_path.read_text())
-    result = perform_capture(config)
+    directory = Path("/etc/apps/app-snapshots.d")
+    if sys.argv[1] == "prune-all":
+        if not directory.is_dir():
+            raise ValueError("App-snapshot configuration directory is missing")
+        failed = False
+        for path in sorted(directory.glob("*.json")):
+            try:
+                locked(load_config(path), prune)
+            except (ValueError, KeyError, OSError, subprocess.CalledProcessError) as error:
+                print(f"App-snapshot cleanup failed for {path.name}: {error}", file=sys.stderr)
+                failed = True
+        return int(failed)
+    config = load_config(directory / f"{sys.argv[1]}.json")
+    result = locked(config, perform_snapshot)
     print(json.dumps(result))
+    return 0
 
 
 if __name__ == "__main__":
     try:
-        main()
+        sys.exit(main())
     except (ValueError, KeyError, OSError, subprocess.CalledProcessError) as error:
-        print(f"NAS application capture failed: {error}", file=sys.stderr)
+        print(f"NAS app snapshot failed: {error}", file=sys.stderr)
         sys.exit(1)

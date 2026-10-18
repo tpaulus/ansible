@@ -1,5 +1,6 @@
 {{ ansible_managed | comment }}
 # No -m or -M: smartd reports to the journal, never to an MTA.
 {% for disk in maintenance_disks %}
-{{ disk.path }}{{ (' -d ' ~ disk.device_type) if disk.device_type is defined else '' }} -a{{ (' -s ' ~ maintenance_smart_selftests) if maintenance_smart_selftests else '' }}
+{% set schedule = disk.selftests | default(maintenance_smart_selftests) %}
+{{ disk.path }}{{ (' -d ' ~ disk.device_type) if disk.device_type is defined else '' }} -a{{ (' -s ' ~ schedule) if schedule else '' }}
 {% endfor %}

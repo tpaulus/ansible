@@ -1,16 +1,28 @@
 ---
-- name: Require explicit cloud mirror source and filters
+- name: Require explicit cloud mirror child datasets and bounded deletions
   ansible.builtin.assert:
     that:
       - backup_cloud_sync_dataset_key in config_resolved.datasets
-      - backup_cloud_sync_filters | length > 0
-    fail_msg: Configure the source dataset and rclone filters before enabling cloud sync.
+      - backup_cloud_sync_source_keys | length > 0
+      - backup_cloud_sync_source_keys | unique | length == backup_cloud_sync_source_keys | length
+      - backup_cloud_sync_source_keys | difference(config_resolved.datasets.keys() | list) | length == 0
+      - backup_cloud_sync_max_delete | int > 0
+    fail_msg: Configure explicit child dataset sources and a positive deletion ceiling before enabling cloud sync.
 
-- name: Verify cloud sync backing storage
+- name: Require cloud mirror sources to be child datasets of the guarded root
+  ansible.builtin.assert:
+    that:
+      - config_resolved.datasets[item].dataset.startswith(config_resolved.datasets[backup_cloud_sync_dataset_key].dataset ~ '/')
+      - config_resolved.datasets[item].path.startswith(config_resolved.datasets[backup_cloud_sync_dataset_key].path ~ '/')
+    fail_msg: Cloud mirror sources must be declared child datasets beneath the source root.
+  loop: "{{ backup_cloud_sync_source_keys }}"
+
+- name: Verify every cloud sync backing dataset
   ansible.builtin.command:
     argv:
       - "{{ backup_mount_guard }}"
-      - "{{ config_resolved.datasets[backup_cloud_sync_dataset_key].path }}"
-      - "{{ config_resolved.datasets[backup_cloud_sync_dataset_key].dataset }}"
+      - "{{ config_resolved.datasets[item].path }}"
+      - "{{ config_resolved.datasets[item].dataset }}"
+  loop: "{{ [backup_cloud_sync_dataset_key] + backup_cloud_sync_source_keys }}"
   changed_when: false
   when: not ansible_check_mode

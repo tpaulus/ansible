@@ -23,8 +23,8 @@
   no_log: true
 
 - name: Install cloud sync filters
-  ansible.builtin.copy:
-    content: "{{ backup_cloud_sync_filters | join('\n') }}\n"
+  ansible.builtin.template:
+    src: cloud-sync.filters.j2
     dest: /etc/backup/cloud-sync.filters
     mode: "0600"
 

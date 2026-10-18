@@ -6,19 +6,51 @@
       - backup_sources | map(attribute='key') | unique | length == backup_sources | length
       - backup_sources | map(attribute='repository_prefix') | unique | length == backup_sources | length
       - >-
-        backup_required_apps | difference(backup_sources | selectattr('kind', 'equalto', 'application_capture')
+        backup_required_apps | difference(backup_sources | selectattr('kind', 'equalto', 'app_snapshot')
         | map(attribute='app') | list) | length == 0
-    fail_msg: Configure unique backup sources, including consistent captures for each application.
+      - backup_sources | map(attribute='kind') | difference(['files', 'app_snapshot']) | length == 0
+    fail_msg: Configure unique backup sources, including consistent snapshots for each application.
 
 - name: Verify backup source mounts
   vars:
-    backup_source_storage: "{{ config_resolved.datasets[item.dataset_key] if item.kind == 'files' else item.capture }}"
+    backup_source_storage: "{{ config_resolved.datasets[item.dataset_key] if item.kind == 'files' else item.snapshot }}"
   ansible.builtin.command:
     argv: ["{{ backup_mount_guard }}", "{{ backup_source_storage.path }}", "{{ backup_source_storage.dataset }}"]
   loop: "{{ backup_sources }}"
   loop_control:
     label: "{{ item.key }}"
   changed_when: false
+  when: not ansible_check_mode
+
+- name: Inspect the app-snapshot helper before retiring legacy backup commands
+  ansible.builtin.stat:
+    path: "{{ backup_app_snapshots_bin }}"
+  register: backup_snapshot_helper
+  when: backup_sources | selectattr('kind', 'equalto', 'app_snapshot') | list | length > 0
+
+- name: Require app-snapshot provisioning before a backup-only upgrade
+  ansible.builtin.assert:
+    that: backup_snapshot_helper.stat.isreg | default(false)
+    fail_msg: Run storage provisioning with apps and backups together to install app-snapshots before upgrading backups.
+  when:
+    - not ansible_check_mode
+    - backup_sources | selectattr('kind', 'equalto', 'app_snapshot') | list | length > 0
+
+- name: Inspect every required app-snapshot policy before replacing backups
+  ansible.builtin.stat:
+    path: "/etc/apps/app-snapshots.d/{{ item.app }}.json"
+  loop: "{{ backup_sources | selectattr('kind', 'equalto', 'app_snapshot') }}"
+  loop_control:
+    label: "{{ item.app }}"
+  register: backup_snapshot_policies
+
+- name: Refuse an incomplete app-snapshot policy migration
+  ansible.builtin.assert:
+    that: item.stat.isreg | default(false)
+    fail_msg: "Provision the {{ item.item.app }} app-snapshot policy before upgrading backups."
+  loop: "{{ backup_snapshot_policies.results }}"
+  loop_control:
+    label: "{{ item.item.app }}"
   when: not ansible_check_mode
 
 - name: Validate enabled cloud sync

@@ -103,6 +103,8 @@ def resolve_shares(context, accounts, groups, inventory_hosts, inventory_groups,
             nfs_declarations[key] = dataset.pop("nfs")
         for username, child in dataset.pop("private_children", {}).items():
             child = {"kind": "dataset", "group": username, "mode": "0700", "create": False, **child}
+            if child["kind"] == "directory" and "properties" in child:
+                _fail("private directory children cannot declare ZFS properties")
             child_key = f"{key}__{username}"
             if child_key in datasets:
                 _fail(f"duplicate private child key {child_key}")
@@ -113,6 +115,8 @@ def resolve_shares(context, accounts, groups, inventory_hosts, inventory_groups,
                 "create": child["create"], "kind": child["kind"],
                 "parent_key": key,
             }
+            if "properties" in child:
+                datasets[child_key]["properties"] = child["properties"]
         dataset["kind"] = "dataset"
     for key, dataset in datasets.items():
         name, path = dataset["dataset"], dataset["path"]

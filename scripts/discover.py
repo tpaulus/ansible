@@ -22,7 +22,7 @@ def discover():
         "dataset_properties": command(
             "zfs", "get", "-Hpr", "-t", "filesystem", "-o", "name,property,value,source",
             "mountpoint,mounted,canmount,encryption,encryptionroot,keystatus,"
-            "acltype,aclmode,aclinherit,xattr,atime,recordsize,compression",
+            "acltype,aclmode,aclinherit,xattr,atime,recordsize,compression,quota,refquota",
             "tank",
         ),
         "network": command("ip", "-j", "address", "show"),

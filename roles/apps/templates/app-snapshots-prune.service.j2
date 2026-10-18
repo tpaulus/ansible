@@ -1,0 +1,11 @@
+[Unit]
+Description=Expire app snapshots older than the configured recovery window
+After=zfs-mount.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/flock "{{ backup_lock | default('/run/lock/restic.lock') }}" /usr/local/sbin/app-snapshots prune-all
+UMask=0077
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7

@@ -19,8 +19,8 @@
         group: root
         mode: "0755"
 
-    - name: Install explicitly configured app-state capture policies
-      ansible.builtin.include_tasks: capture.yml
+    - name: Install explicitly configured app-snapshot policies
+      ansible.builtin.include_tasks: snapshots.yml
 
     - name: Prepare application datasets without changing share permissions
       ansible.builtin.include_tasks: storage.yml
