@@ -1,0 +1,10 @@
+[Unit]
+Description=Export reboot-required status to node exporter
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/libexec/reboot-metrics {{ reboot_metrics_dir | to_json }} /run/reboot-required
+TimeoutStartSec=30s
+UMask=0022
+StandardOutput=journal
+StandardError=journal

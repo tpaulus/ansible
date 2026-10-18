@@ -100,6 +100,27 @@ frameworks or approval paperwork.
 - Unbound exporter builds a pinned tag on the controller and rebuilds only
   when the installed version differs.
 
+### Reboot monitoring
+
+The unattended-upgrades role already enables automatic reboots on non-K3s
+compute and storage hosts. K3s nodes leave reboot coordination to Kured. Firewall hosts are
+not included in this update or monitoring policy.
+
+The `monitoring` tag installs `reboot-metrics.timer` on non-K3s compute and storage
+hosts. Every minute (starting 15 seconds after boot), it atomically publishes the
+`node_reboot_required` gauge to the shared node-exporter textfile directory:
+`1` when `/run/reboot-required` exists and `0` otherwise. Collector failures are
+reported in `reboot-metrics.service`'s journal and fail the service; the existing
+textfile is preserved until the next successful collection. Node exporter's
+`node_textfile_mtime_seconds` exposes the last successful publication time.
+K3s nodes are skipped, leaving their reboot telemetry to Kured.
+
+The central Prometheus rule belongs in `tpaulus/kube-config`, alongside Kured's
+alerts: `node_reboot_required == 1` with `for: 24h`. This means 24 hours of
+continuously observed reboot-required status, not a scheduled reboot or an
+estimate based on marker file modification time. Deploy the monitoring role and
+the central alert rule together; this repository does not manage central alerts.
+
 ## Storage
 
 Debian 13 amd64 runs OpenZFS, Samba/NFS, smartd/Sanoid, rootless Podman
@@ -333,11 +354,10 @@ quorum. It drains/stops the node and removes membership, without erasing data.
 ```sh
 ANSIBLE_INVENTORY=inventories/ci/hosts.yml ansible-lint --offline
 bash scripts/check-syntax.sh
-"$(brew --prefix ansible)/libexec/bin/python" -m unittest discover -s tests
 ```
 
-CI runs these checks with pinned dependencies (use `python` for the filter tests
-outside Homebrew). Focused filter/template tests cover share defaults and access
-policy; no playbook/script unit-test suite is maintained. Do not suppress lint rules. Syntax and lint checks do not
+CI runs these checks with pinned dependencies. Do not add unit tests or
+test-running CI steps; use the existing lint and syntax checks instead.
+Do not suppress lint rules. Syntax and lint checks do not
 replace checking mounts, client access, application health, backup restores
 and reboot behavior on the actual hosts.

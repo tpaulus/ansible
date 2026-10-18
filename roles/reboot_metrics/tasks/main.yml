@@ -1,0 +1,31 @@
+---
+- name: Configure non-K3s reboot-required collector
+  when: "'tags_k3s' not in group_names"
+  block:
+    - name: Create reboot metric directories
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: directory
+        mode: "0755"
+      loop: [/usr/local/libexec, "{{ reboot_metrics_dir }}"]
+
+    - name: Install reboot-required collector
+      ansible.builtin.copy:
+        src: reboot-metrics
+        dest: /usr/local/libexec/reboot-metrics
+        mode: "0755"
+
+    - name: Install reboot-required collection units
+      ansible.builtin.template:
+        src: "{{ item }}.j2"
+        dest: "/etc/systemd/system/{{ item }}"
+        mode: "0644"
+      loop: [reboot-metrics.service, reboot-metrics.timer]
+      register: reboot_metrics_units
+
+    - name: Enable reboot-required collection timer
+      ansible.builtin.systemd_service:
+        name: reboot-metrics.timer
+        daemon_reload: "{{ reboot_metrics_units.changed }}"
+        enabled: true
+        state: started
