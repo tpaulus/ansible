@@ -1,0 +1,5 @@
+{% set root = config_resolved.datasets[backup_cloud_sync_dataset_key].path %}
+{% for key in backup_cloud_sync_source_keys %}
++ /{{ config_resolved.datasets[key].path[(root | length) + 1:] }}/**
+{% endfor %}
+- /**

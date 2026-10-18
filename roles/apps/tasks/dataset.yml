@@ -69,6 +69,13 @@
   changed_when: false
   check_mode: false
 
+- name: Reconcile explicitly declared application dataset limits
+  community.general.zfs:
+    name: "{{ apps_mount.dataset }}"
+    state: present
+    extra_zfs_properties: "{{ apps_mount.properties }}"
+  when: apps_mount.properties | default({}) | length > 0
+
 - name: Set only the application dataset root ownership
   ansible.builtin.file:
     path: "{{ apps_mount.path }}"

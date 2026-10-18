@@ -1,0 +1,44 @@
+#!/usr/bin/env bash
+{{ ansible_managed | comment }}
+set -euo pipefail
+umask 077
+exec 9>{{ backup_lock | quote }}
+flock -w 21600 9 || { echo "Timed out waiting for NAS backups before integrity check" >&2; exit 75; }
+export RESTIC_PASSWORD={{ offsite_restic_password | quote }}
+export AWS_ACCESS_KEY_ID={{ b2_account_id | quote }}
+export AWS_SECRET_ACCESS_KEY={{ b2_account_key | quote }}
+RESTIC={{ backup_restic_bin | quote }}
+BUCKET_NAME={{ offsite_b2_bucket_name | quote }}
+S3_ENDPOINT={{ b2_s3_endpoint | quote }}
+SHARES=({% for source in backup_sources %}{{ source.repository_prefix | quote }} {% endfor %})
+metrics={{ (backup_metrics_dir ~ '/restic_check.prom') | quote }}
+temporary="$metrics.$$"
+trap 'rm -f "$temporary"; unset RESTIC_PASSWORD AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY' EXIT
+: > "$temporary"
+result=0
+for share in "${SHARES[@]}"; do
+    export RESTIC_REPOSITORY="s3:$S3_ENDPOINT/$BUCKET_NAME/$share"
+    state="/var/lib/restic-check/$share"
+    subset=1
+    if [[ -f "$state" ]]; then
+        read -r subset < "$state"
+        if [[ ! "$subset" =~ ^[1-4]$ ]]; then
+            echo "Invalid integrity-check subset state for $share" >&2
+            printf 'b2_check_failed{share="%s", bucket_name="%s"} %s\n' "$share" "$BUCKET_NAME" "$(date +%s)" >> "$temporary"
+            result=1
+            continue
+        fi
+    fi
+    if "$RESTIC" --retry-lock 5m check --read-data-subset "$subset/4"; then
+        printf '%s\n' "$((subset % 4 + 1))" > "$state.new"
+        mv "$state.new" "$state"
+        printf 'b2_check_completed{share="%s", bucket_name="%s"} %s\n' "$share" "$BUCKET_NAME" "$(date +%s)" >> "$temporary"
+    else
+        echo "Repository integrity check failed for $share" >&2
+        printf 'b2_check_failed{share="%s", bucket_name="%s"} %s\n' "$share" "$BUCKET_NAME" "$(date +%s)" >> "$temporary"
+        result=1
+    fi
+done
+chmod 0644 "$temporary"
+mv "$temporary" "$metrics"
+exit "$result"

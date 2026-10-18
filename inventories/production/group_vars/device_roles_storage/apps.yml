@@ -12,13 +12,13 @@ apps_exporter_metrics_sources: [10.0.40.0/24]
 apps_create_datasets: true
 apps_webdav_htpasswd: "{{ vault_nas_webdav_htpasswd | default('') }}"
 
-# Repository-owned capture roots, provisioned separately as root:root 0700.
-# No helper creates/destroys datasets or deletes retained snapshots/generations.
+# Repository-owned app-snapshot roots, provisioned separately as root:root 0700.
+# Preserve the existing physical dataset names during the command/policy rename.
 # The pool has over 13 TB available against about 270 GB initial app state;
 # retain a 1 TiB pool-free floor and check every changed-file estimate.
-apps_capture_parents:
+apps_snapshot_parents:
   - {dataset: tank/app-backups, path: /mnt/tank/app-backups}
-apps_captures:
+apps_snapshots:
   jellyfin:
     path: /mnt/tank/app-backups/jellyfin
     dataset: tank/app-backups/jellyfin
@@ -27,6 +27,8 @@ apps_captures:
     path: /mnt/tank/app-backups/prometheus
     dataset: tank/app-backups/prometheus
     minimum_free_bytes: 1099511627776
+    retired_datasets:
+      - {dataset: tank/apps/prometheus-runtime-data, path: /mnt/tank/apps/prometheus-runtime-data}
   webdav:
     path: /mnt/tank/app-backups/webdav
     dataset: tank/app-backups/webdav
@@ -52,7 +54,7 @@ apps_definitions:
     gpu_device: /dev/dri/by-path/pci-0000:00:02.0-render
     # Approved Unix access mapping; conversion remains a separate operation.
     supplementary_groups: [nas-media]
-    backup_targets: [/config, /jellyfin/jellyfin-web/ui]
+    snapshot_targets: [/config, /jellyfin/jellyfin-web/ui]
     environment:
       TZ: UTC
       JELLYFIN_DATA_DIR: /config
@@ -100,7 +102,14 @@ apps_definitions:
     container_gid: 568
     # Source really uses host networking, including localhost semantics.
     network: host
-    backup_targets: [/config, /data]
+    snapshot_targets: [/config]
+    # The runtime clone depends on this retained source dataset and its snapshot.
+    retained_datasets:
+      - dataset: tank/apps/prometheus-data
+        path: /mnt/tank/apps/prometheus-data
+        properties:
+          quota: "512G"
+          refquota: "512G"
     command:
       - --web.listen-address=0.0.0.0:9090
       - --storage.tsdb.path=/data
@@ -120,6 +129,9 @@ apps_definitions:
         required_files: [prometheus.yml]
       - path: /mnt/tank/apps/prometheus-runtime-data
         dataset: tank/apps/prometheus-runtime-data
+        properties:
+          quota: "512G"
+          refquota: "512G"
         target: /data
         access: rw
         create: true
@@ -154,7 +166,7 @@ apps_definitions:
     network: pasta
     # Protect DAV locks/config/auth, not all uploaded documents by surprise.
     # Svalbard document backup coverage remains a separate reviewed policy.
-    backup_targets: [/state]
+    snapshot_targets: [/state]
     ports: ["30035:30035/tcp"]
     command: [httpd-foreground]
     mounts:

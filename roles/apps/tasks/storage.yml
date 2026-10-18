@@ -1,4 +1,32 @@
 ---
+- name: Verify retained application dataset mounts without creating or changing ownership
+  ansible.builtin.command:
+    argv: ["{{ apps_mount_guard }}", "{{ item.path }}", "{{ item.dataset }}"]
+  loop: "{{ apps_app.retained_datasets | default([]) }}"
+  loop_control:
+    label: "{{ item.dataset }}"
+  changed_when: false
+  when: not ansible_check_mode
+
+- name: Inspect retained application datasets without creating them
+  ansible.builtin.command:
+    argv: [zfs, list, -H, -o, name, "{{ item.dataset }}"]
+  loop: "{{ apps_app.retained_datasets | default([]) }}"
+  loop_control:
+    label: "{{ item.dataset }}"
+  changed_when: false
+  check_mode: false
+
+- name: Reconcile explicit retained application dataset limits
+  community.general.zfs:
+    name: "{{ item.dataset }}"
+    state: present
+    extra_zfs_properties: "{{ item.properties }}"
+  loop: "{{ apps_app.retained_datasets | default([]) }}"
+  loop_control:
+    label: "{{ item.dataset }}"
+  when: item.properties | default({}) | length > 0
+
 - name: Prepare only repository-owned application datasets
   ansible.builtin.include_tasks: dataset.yml
   loop: "{{ apps_app.mounts | selectattr('create', 'defined') | selectattr('create') | list }}"

@@ -1,0 +1,69 @@
+---
+- name: Install the app-state copy dependency
+  ansible.builtin.apt:
+    name: rsync
+    state: present
+
+- name: Create the restricted repository-owned app-snapshot configuration directory
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "{{ '0755' if item == '/etc/apps' else '0700' }}"
+  loop: [/etc/apps, /etc/apps/app-snapshots.d]
+
+- name: Install the guarded app-snapshot operation
+  ansible.builtin.copy:
+    src: app-snapshots.py
+    dest: /usr/local/sbin/app-snapshots
+    owner: root
+    group: root
+    mode: "0700"
+
+- name: Prepare declared private app-snapshot parent datasets
+  ansible.builtin.include_tasks: dataset.yml
+  vars:
+    apps_app: {identity: {name: root}}
+    apps_mount: "{{ apps_snapshot_parent }}"
+  loop: "{{ apps_snapshot_parents }}"
+  loop_control:
+    loop_var: apps_snapshot_parent
+    label: "{{ apps_snapshot_parent.dataset }}"
+
+- name: Prepare selected approved app-snapshot datasets
+  ansible.builtin.include_tasks: dataset.yml
+  vars:
+    apps_app: {identity: {name: root}}
+    apps_mount: "{{ apps_snapshots[apps_snapshot_app.name] }}"
+  loop: "{{ apps_resolved }}"
+  loop_control:
+    loop_var: apps_snapshot_app
+    label: "{{ apps_snapshot_app.name }}"
+  when: apps_snapshot_app.name in apps_snapshots
+
+- name: Publish only selected app-snapshot policies
+  ansible.builtin.copy:
+    content: "{{ item | snapshot_config(apps_snapshots, apps_mount_guard, apps_snapshot_retention_days) | to_nice_json }}\n"
+    dest: "/etc/apps/app-snapshots.d/{{ item.name }}.json"
+    owner: root
+    group: root
+    mode: "0600"
+  loop: "{{ apps_resolved }}"
+  loop_control:
+    label: "{{ item.name }}"
+  when: item.name in apps_snapshots
+
+- name: Install daily app-snapshot retention units
+  ansible.builtin.template:
+    src: "{{ item }}.j2"
+    dest: "/etc/systemd/system/{{ item }}"
+    mode: "0644"
+  loop: [app-snapshots-prune.service, app-snapshots-prune.timer]
+
+- name: Enable independent daily app-snapshot cleanup
+  ansible.builtin.systemd_service:
+    name: app-snapshots-prune.timer
+    enabled: true
+    state: started
+    daemon_reload: true

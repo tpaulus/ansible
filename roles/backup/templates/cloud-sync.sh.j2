@@ -5,13 +5,14 @@ umask 077
 exec 9>/run/lock/cloud-sync.lock
 flock -n 9 || { echo "Another cloud sync is active" >&2; exit 75; }
 verify_source() {
-    {{ backup_mount_guard | quote }} {{ config_resolved.datasets[backup_cloud_sync_dataset_key].path | quote }} {{ config_resolved.datasets[backup_cloud_sync_dataset_key].dataset | quote }} || return 1
+    {{ backup_mount_guard | quote }}{% for key in [backup_cloud_sync_dataset_key] + backup_cloud_sync_source_keys %} {{ config_resolved.datasets[key].path | quote }} {{ config_resolved.datasets[key].dataset | quote }}{% endfor %} || return 1
 }
 verify_source
 args=(sync \
     {{ config_resolved.datasets[backup_cloud_sync_dataset_key].path | quote }} encrypted: \
     --config /etc/backup/rclone.conf --filter-from /etc/backup/cloud-sync.filters \
-    --create-empty-src-dirs --log-level NOTICE)
+    --create-empty-src-dirs --log-level NOTICE \
+    --delete-after --max-delete {{ backup_cloud_sync_max_delete | int }})
 {% if not backup_cloud_sync_deletion_approved %}
 args+=(--dry-run)
 {% endif %}

@@ -9,12 +9,17 @@
     storage_declared_app_datasets: >-
       {{ apps_definitions | default({}) | dict2items | map(attribute='value.mounts') | flatten
          | selectattr('dataset', 'defined') | map(attribute='dataset') | list }}
+    storage_retained_app_datasets: >-
+      {{ apps_definitions | default({}) | dict2items | map(attribute='value')
+         | selectattr('retained_datasets', 'defined') | map(attribute='retained_datasets')
+         | flatten | map(attribute='dataset') | list }}
     storage_declared_capture_datasets: >-
-      {{ ((apps_capture_parents | default([]))
-          + (apps_captures | default({}) | dict2items | map(attribute='value') | list))
+      {{ ((apps_snapshot_parents | default([]))
+          + (apps_snapshots | default({}) | dict2items | map(attribute='value') | list))
          | map(attribute='dataset') | list }}
     storage_unmanaged_datasets: >-
       {{ storage_dataset_names
          | difference((storage_pools.keys() | list) + storage_declared_share_datasets
-                      + storage_declared_app_datasets + storage_declared_capture_datasets)
+                      + storage_declared_app_datasets + storage_retained_app_datasets
+                      + storage_declared_capture_datasets)
          | sort }}

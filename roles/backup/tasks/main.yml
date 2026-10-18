@@ -53,10 +53,18 @@
     group: root
     mode: "0755"
 
-- name: Install immutable capture result validator
+- name: Publish independent expected Restic integrity checks for missing-result alerts
+  ansible.builtin.template:
+    src: restic-check-expected.prom.j2
+    dest: "{{ backup_metrics_dir }}/restic_check_expected.prom"
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Install immutable app-snapshot result validator
   ansible.builtin.copy:
-    src: capture-result.py
-    dest: "{{ backup_capture_result_bin }}"
+    src: app-snapshot-result.py
+    dest: "{{ backup_snapshot_result_bin }}"
     owner: root
     group: root
     mode: "0755"
@@ -70,12 +78,35 @@
     mode: "0700"
   no_log: true
 
+- name: Retire the old capture commands only after replacing the backup entry point
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: absent
+  loop: [/usr/local/libexec/capture-result.py, /usr/local/sbin/capture-app]
+
+- name: Retire replaced capture policy files without deleting snapshot data
+  ansible.builtin.file:
+    path: "/etc/apps/capture.d/{{ item.app }}.json"
+    state: absent
+  loop: "{{ backup_sources | selectattr('kind', 'equalto', 'app_snapshot') }}"
+  loop_control:
+    label: "{{ item.app }}"
+
+- name: Install scheduled Restic integrity checker
+  ansible.builtin.template:
+    dest: /usr/local/sbin/check-restic
+    src: restic-check.sh.j2
+    owner: root
+    group: root
+    mode: "0700"
+  no_log: true
+
 - name: Install Restic systemd units
   ansible.builtin.template:
     src: "{{ item }}.j2"
     dest: "/etc/systemd/system/{{ item }}"
     mode: "0644"
-  loop: [restic.service, restic.timer]
+  loop: [restic.service, restic.timer, restic-check.service, restic-check.timer]
   notify: Reload NAS backup systemd
 
 - name: Remove legacy root backup cron entry
@@ -122,6 +153,7 @@
 
 - name: Reconcile nonoverlapping Restic scheduling after readiness review
   ansible.builtin.systemd_service:
-    name: restic.timer
+    name: "{{ item }}"
     state: "{{ 'started' if backup_timer_enabled | bool else 'stopped' }}"
     enabled: "{{ backup_timer_enabled | bool }}"
+  loop: [restic.timer, restic-check.timer]

@@ -155,9 +155,22 @@ and NFS `clients` remain mandatory. Set `write_users: []` for read-only SMB;
 an explicit write list limits writers. `%U` paths still require declared private
 children for every permitted user. Dataset creation always requires `create: true`.
 ZFS properties are unmanaged unless explicitly declared, not reset to defaults.
+Set `nas.datasets.<key>.properties.quota` for a dataset-wide cap, or
+`nas.datasets.<key>.private_children.<username>.properties.quota` for an
+individual private child dataset (including Time Machine destinations).
+Both accept a string containing a positive integer followed by `M`, `G` or `T`,
+or the explicit string `"none"` to remove a cap. Omit `quota` to preserve the
+existing ZFS setting; no default cap or automatic quota removal is applied.
+`refquota` is supported in the same property maps and limits only the dataset's
+referenced data, excluding snapshots and descendants. Preserve that distinction
+when importing TrueNAS limits; do not translate a `refquota` into a `quota`.
+Private children default to `kind: dataset`; `kind: directory` cannot declare
+ZFS properties because it shares its parent's filesystem. Child quotas are
+independent declarations, not copies of the parent's quota; a parent quota
+still limits the combined usage of its descendants.
 Storage runs (including check mode) report existing ZFS filesystems in approved
 pools that are not declared as share roots, application datasets or app-state
-capture datasets. Removed private children appear in this report; their datasets
+snapshot staging datasets. Removed private children appear in this report; their datasets
 and data are left untouched. Undeclared descendants are reported individually,
 even beneath a declared parent. Ordinary directories and snapshots are not included.
 
@@ -265,6 +278,10 @@ ansible-playbook playbooks/operations/storage/reset-smb-passwords.yml --limit ST
 ```
 
 Discovery is read-only and omits secret environment values; it is not a backup.
+Its recursive `dataset_properties` evidence includes existing `quota` and `refquota` values
+and their ZFS sources for all filesystems, including private child datasets.
+Numeric values are reported in bytes (`zfs get -p`); review existing settings
+before declaring caps in NetBox. Discovery does not populate or modify NetBox.
 Edit the NetBox share context directly using the schema. Keep discovery output,
 configuration archives, credentials and application backups outside Git.
 
@@ -303,22 +320,86 @@ starting apps and preserve existing library paths and numeric ownership.
 SMB password resets do not rotate WebDAV credentials.
 
 Prometheus's original imported configuration is archived once and included
-in application captures; routine configuration updates do not replace it.
+in app snapshots; routine configuration updates do not replace it.
 
-`backup_sources` selects file datasets and app-consistent captures.
-`capture-app NAME` stops the application, snapshots its private state, resumes
-it, and copies a completed generation for Restic. Capacity checks protect the
-pool reserve. `/usr/local/sbin/backup-to-b2` is the stable backup entry point.
-Restic and cloud sync have separate timers and process locks.
-Initialize repositories and unlock stale locks deliberately.
+`apps_snapshots` and each application's `snapshot_targets` select private state.
+Application-owned datasets that must remain outside container mounts can be
+declared beside that application's settings as `retained_datasets`, with explicit
+`dataset`, `path`, and optional `properties.quota` / `properties.refquota`.
+Provisioning verifies these existing datasets and reconciles only declared
+limits; it never creates them or changes their ownership. Prometheus declares
+`tank/apps/prometheus-data` here with its existing 512 GiB quota and refquota.
+The running `/data` mount uses `tank/apps/prometheus-runtime-data`, a clone of
+that retained source's migration snapshot. ZFS clones do not inherit the source's
+quota limits; the runtime mount explicitly declares the same 512 GiB quota and
+refquota in `apps_definitions.prometheus.mounts`. Provisioning reconciles those
+limits on the active clone as well as preserving the retained source's limits.
+
+`app-snapshots NAME` stops the application, takes atomic ZFS snapshots, resumes
+it, and stages a completed generation for Restic. Jellyfin configuration/state
+and Prometheus configuration are included; Prometheus metric data is not.
+WebDAV snapshots include only its private state/configuration, not Svalbard
+documents: those are already backups from an offsite appliance.
+
+Local app snapshots and staged generations expire after seven days
+(`apps_snapshot_retention_days`). Cleanup runs before snapshots and independently
+each day through `app-snapshots-prune.timer`, serialized with backups. It removes
+only recognized helper-owned generations and snapshots, including legacy captures
+and abandoned staging generations older than the recovery window. Other ZFS
+snapshots, datasets and application data are untouched. Legacy Prometheus metric
+snapshots/staging copies age out under the same policy. Existing `tank/app-backups`
+dataset paths remain unchanged to avoid a storage migration; new generations use
+`snapshots/`, with policy in `/etc/apps/app-snapshots.d/`.
+Upgrade with a full storage provisioning run (or `--tags apps,backups`) so every
+new policy is installed before the backup role retires the legacy commands.
+
+`backup_sources` selects file datasets and app snapshots.
+`/usr/local/sbin/backup-to-b2` remains the stable backup entry point.
+App repositories retain a seven-day window (`forget --keep-within 7d`);
+file repositories retain their existing 7-daily/5-weekly/7-monthly policy.
+Backup and retention group by host, not the changing generation path.
+Restic's window is relative to the latest backup, preserving recovery points
+through an outage rather than deleting the last usable backup.
+Weekly `restic-check.timer` checks repository metadata and reads a rotating
+quarter of each repository's stored data, advancing only on success. It shares
+the backup lock and publishes completion/failure metrics. Scheduled checks do
+not replace periodic restore rehearsals. Initialize repositories and unlock
+stale locks deliberately.
+`b2_check_expected` independently lists every enabled repository so central
+alerts can detect checks that never ran or stopped publishing, not only explicit
+`b2_check_failed` results. Central Restic integrity rules live in the K3s repository.
+
+Cloud sync derives filters and runtime mount checks from the same
+`backup_cloud_sync_source_keys` list, verifying every selected child dataset
+as well as its parent before invoking rclone. It uses deferred deletion and
+`backup_cloud_sync_max_delete` (default 100) to bound deletions per run; exceeding
+the ceiling is a failure requiring review, not an automatic unlimited retry.
+Cloud sync is a mirror, not versioned backup; confirm B2 recovery/version
+retention separately. Restic and cloud sync retain independent timers/locks.
 
 `backup_pruning_approved` and `maintenance_pruning_approved` control deletion
 of backups/snapshots. `backup_cloud_sync_deletion_approved` switches the
 encrypted cloud mirror from dry-run comparison to real synchronization.
-Verify restores and review deletion plans before enabling them.
+Production Restic pruning is enabled; other deployments should verify restores
+and review deletion plans before enabling it. Sanoid pruning remains separately
+gated and does not control the seven-day app-snapshot policy.
 
 Sanoid uses repository retention policy; OpenZFS's packaged cron handles scrubs.
-smartd logs to the journal. SMART/scrub collectors publish atomic node-exporter
+At each maintenance playbook run, physical disks are discovered with `lsblk`,
+SMART transports with `smartctl --scan-open`, and allocation roles from the live
+pool topology. Stable by-id paths and probed serials feed smartd, the collectors,
+and their independent expected-disk metrics from the same discovered inventory.
+Disks omitted by the SMART scan are probed with automatic detection, then SAT
+and supported USB NVMe bridge transports; the first successful identification
+supplies the transport. No per-disk inventory or transport overrides are needed.
+Discovery fails explicitly rather than silently omitting an unidentifiable disk.
+smartd logs to the journal and schedules daily short tests and staggered monthly
+extended tests, avoiding days 8-14 for the packaged second-Sunday scrub.
+New disks enter monitoring and test schedules on the next maintenance playbook
+run; hotplug alone does not refresh the configuration.
+Check actual device/USB-bridge test support on
+the NAS; do not interpret successful scheduling as a completed disk test.
+SMART/scrub collectors publish atomic node-exporter
 textfiles, retaining successful scrub history across later scans. Disk policy
 uses by-id paths and serial numbers, not `/dev/sdX`.
 Alloy uses bounded persistent journals and a boot-filesystem OTLP queue.

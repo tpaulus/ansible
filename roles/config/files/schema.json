@@ -18,6 +18,7 @@
     "account": {"type": "string", "pattern": "^[a-z_][a-z0-9_-]*[$]?$"},
     "names": {"type": "array", "uniqueItems": true, "items": {"$ref": "#/$defs/account"}},
     "mode": {"type": "string", "pattern": "^[0123][0-7]{2}[0-7]$"},
+    "quota": {"type": "string", "pattern": "^(none|[1-9][0-9]*[MGT])$"},
     "dataset": {
       "type": "object",
       "additionalProperties": false,
@@ -37,7 +38,8 @@
             "compression": {"enum": ["on", "off", "lz4", "zstd"]},
             "atime": {"enum": ["on", "off"]},
             "recordsize": {"enum": ["16K", "128K", "1M"]},
-            "quota": {"type": "string", "pattern": "^(none|[1-9][0-9]*[MGT])$"}
+            "quota": {"$ref": "#/$defs/quota"},
+            "refquota": {"$ref": "#/$defs/quota"}
           }
         },
         "private_children": {
@@ -49,8 +51,19 @@
               "kind": {"enum": ["directory", "dataset"]},
               "group": {"$ref": "#/$defs/account"},
               "mode": {"$ref": "#/$defs/mode"},
-              "create": {"type": "boolean"}
-            }
+              "create": {"type": "boolean"},
+              "properties": {
+                "type": "object", "additionalProperties": false,
+                "properties": {
+                  "quota": {"$ref": "#/$defs/quota"},
+                  "refquota": {"$ref": "#/$defs/quota"}
+                }
+              }
+            },
+            "allOf": [{
+              "if": {"required": ["kind"], "properties": {"kind": {"const": "directory"}}},
+              "then": {"not": {"required": ["properties"]}}
+            }]
           }
         }
       }

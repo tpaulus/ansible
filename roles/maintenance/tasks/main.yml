@@ -27,6 +27,20 @@
     cache_valid_time: 3600
     policy_rc_d: 101
 
+- name: Discover physical disks and SMART transports before updating maintenance policy
+  ansible.builtin.script:
+    cmd: >-
+      discover-disks.py
+      {{ maintenance_pools | map(attribute='name') | list | to_json | quote }}
+    executable: /usr/bin/python3
+  register: maintenance_disk_discovery
+  changed_when: false
+  check_mode: false
+
+- name: Use discovered SMART disks for monitoring, schedules and expectations
+  ansible.builtin.set_fact:
+    maintenance_disks: "{{ maintenance_disk_discovery.stdout | from_json }}"
+
 - name: Find instantiated alternative packaged scrub timers
   ansible.builtin.command:
     argv: [systemctl, list-units, --all, --full, --plain, --no-legend, "zfs-scrub-*@*.timer"]

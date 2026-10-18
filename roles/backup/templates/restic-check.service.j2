@@ -1,0 +1,19 @@
+[Unit]
+Description=Verify NAS Restic repositories and a rotating quarter of backup data
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+StateDirectory=restic-check
+StateDirectoryMode=0700
+CacheDirectory=restic
+Environment=XDG_CACHE_HOME=/var/cache/restic
+ExecStart=/usr/local/sbin/check-restic
+TimeoutStartSec=infinity
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7
+UMask=0077
+StandardOutput=journal
+StandardError=journal

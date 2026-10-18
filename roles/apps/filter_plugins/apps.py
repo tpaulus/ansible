@@ -19,21 +19,29 @@ def select_apps(configured, run_tags):
     return configured
 
 
-def capture_config(app, captures, mount_guard):
+def snapshot_config(app, snapshots, mount_guard, retention_days):
     try:
-        target = copy.deepcopy(captures[app["name"]])
+        target = copy.deepcopy(snapshots[app["name"]])
+        if not isinstance(retention_days, int) or isinstance(retention_days, bool) or retention_days < 1:
+            raise ValueError("App-snapshot retention must be a positive number of days")
         if not absolute_path(target["path"]) or not target["path"].startswith("/mnt/"):
-            raise ValueError("Capture staging must be an explicit /mnt path")
+            raise ValueError("App-snapshot staging must be an explicit /mnt path")
         if not re.fullmatch(r"[A-Za-z0-9_./ -]+", target["dataset"]):
-            raise ValueError("Capture staging needs an explicit dataset")
-        selected = app["backup_targets"]
+            raise ValueError("App-snapshot staging needs an explicit dataset")
+        selected = app["snapshot_targets"]
         sources = [mount for mount in app["mounts"] if mount["target"] in selected]
         if not selected or len(sources) != len(selected):
-            raise ValueError("Explicit private state backup targets are required")
+            raise ValueError("Explicit private state snapshot targets are required")
         if any("dataset_key" in mount or not mount.get("require_import") for mount in sources):
-            raise ValueError("Capture must not include media, document roots or disposable caches")
+            raise ValueError("App snapshots must not include media, document roots or disposable caches")
         if len({mount["dataset"].split("/")[0] for mount in sources}) != 1:
             raise ValueError("Atomic stopped snapshots require a single source pool")
+        for retired in target.get("retired_datasets", []):
+            if (not absolute_path(retired["path"]) or not retired["path"].startswith("/mnt/")
+                    or not re.fullmatch(r"[A-Za-z0-9_./ -]+", retired["dataset"])
+                    or ".." in retired["dataset"].split("/")
+                    or retired["dataset"] == target["dataset"]):
+                raise ValueError("Retired snapshot sources require explicit independent datasets")
         home = app["identity"]["home"]
         files = [
             f"{home}/.config/containers/systemd/{app['name']}.container",
@@ -47,12 +55,13 @@ def capture_config(app, captures, mount_guard):
             files.append(f"{home}/.source-configuration/prometheus-source.tar")
         return {
             "name": app["name"], "identity": app["identity"], "image": app["image"],
-            "capture": target, "sources": sources, "private_files": files,
+            "snapshot": target, "sources": sources, "private_files": files,
+            "retention_days": retention_days,
             "mount_guard": mount_guard, "readiness_url": app["readiness_url"],
             "readiness_status": app.get("readiness_status", 200),
         }
     except (KeyError, TypeError, ValueError) as error:
-        raise AnsibleFilterError(f"Invalid application capture configuration: {error}") from error
+        raise AnsibleFilterError(f"Invalid app-snapshot configuration: {error}") from error
 
 
 def resolve_apps(apps, resolved, accounts, selected):
@@ -83,8 +92,29 @@ def resolve_apps(apps, resolved, accounts, selected):
                 raise ValueError("Host networking cannot publish additional ports")
             if not app.get("mounts") or not app.get("health_cmd"):
                 raise ValueError("Persistent mounts and explicit health checks are required")
+            for retained in app.get("retained_datasets", []):
+                if (not absolute_path(retained["path"])
+                        or not retained["path"].startswith("/mnt/")
+                        or not re.fullmatch(r"[A-Za-z0-9_./ -]+", retained["dataset"])
+                        or ".." in retained["dataset"].split("/")):
+                    raise ValueError("Retained app datasets require explicit dataset identities and paths")
+                properties = retained.get("properties", {})
+                if (not isinstance(properties, dict)
+                        or set(properties) - {"quota", "refquota"}
+                        or any(not isinstance(value, str)
+                               or not re.fullmatch(r"none|[1-9][0-9]*[MGT]", value)
+                               for value in properties.values())):
+                    raise ValueError("Retained app datasets support only explicit quota/refquota limits")
             destinations = set()
             for mount in app["mounts"]:
+                properties = mount.get("properties", {})
+                if (not isinstance(properties, dict)
+                        or set(properties) - {"quota", "refquota"}
+                        or any(not isinstance(value, str)
+                               or not re.fullmatch(r"none|[1-9][0-9]*[MGT]", value)
+                               for value in properties.values())
+                        or (properties and ("dataset_key" in mount or not mount.get("create")))):
+                    raise ValueError("Only managed application datasets may declare quota/refquota limits")
                 if "dataset_key" in mount:
                     dataset = resolved["datasets"][mount["dataset_key"]]
                     if any(key in mount for key in (
@@ -135,7 +165,7 @@ class FilterModule:
         return {
             "resolve_apps": resolve_apps,
             "select_apps": select_apps,
-            "capture_config": capture_config,
+            "snapshot_config": snapshot_config,
             "readonly_mount_args": lambda mounts: [
                 arg for mount in mounts
                 for arg in ("--volume", f"{mount['path']}:{mount['target']}:ro")

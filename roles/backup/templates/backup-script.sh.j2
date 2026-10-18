@@ -13,10 +13,12 @@ export AWS_SECRET_ACCESS_KEY={{ b2_account_key | quote }}
 BUCKET_NAME={{ offsite_b2_bucket_name | quote }}
 S3_ENDPOINT={{ b2_s3_endpoint | quote }}
 SHARES=({% for source in sources %}{{ source.repository_prefix | quote }} {% endfor %})
-PATHS=({% for source in sources %}{% set storage = config_resolved.datasets[source.dataset_key] if source.kind == 'files' else source.capture %}{{ storage.path | quote }} {% endfor %})
-DATASETS=({% for source in sources %}{% set storage = config_resolved.datasets[source.dataset_key] if source.kind == 'files' else source.capture %}{{ storage.dataset | quote }} {% endfor %})
+PATHS=({% for source in sources %}{% set storage = config_resolved.datasets[source.dataset_key] if source.kind == 'files' else source.snapshot %}{{ storage.path | quote }} {% endfor %})
+DATASETS=({% for source in sources %}{% set storage = config_resolved.datasets[source.dataset_key] if source.kind == 'files' else source.snapshot %}{{ storage.dataset | quote }} {% endfor %})
+KINDS=({% for source in sources %}{{ source.kind | quote }} {% endfor %})
 GUARD={{ backup_mount_guard | quote }}
-CAPTURE_RESULT={{ backup_capture_result_bin | quote }}
+SNAPSHOT_RESULT={{ backup_snapshot_result_bin | quote }}
+APP_SNAPSHOTS={{ backup_app_snapshots_bin | quote }}
 MAX_RETRIES="${MAX_RETRIES:-3}"
 BASE_RETRY_DELAY="${BASE_RETRY_DELAY:-30}"
 MAX_RETRY_DELAY="${MAX_RETRY_DELAY:-300}"
@@ -34,7 +36,7 @@ backup_share() {
         "$GUARD" "$source_path" "$dataset" || return 1
         if timeout --kill-after=5m "$BACKUP_TIMEOUT_SECONDS" \
             "$RESTIC" --retry-lock "$LOCK_RETRY_DURATION" --stuck-request-timeout 5m \
-            backup --cleanup-cache "$source_path"; then
+            backup --group-by host --cleanup-cache "$source_path"; then
             return 0
         fi
         echo "Backup attempt failed for $share" >&2
@@ -56,22 +58,22 @@ for i in "${!SHARES[@]}"; do
         result=1
         continue
     fi
-    capture_ok=1
+    snapshot_ok=1
 {% for source in sources %}
-{% if source.kind == 'application_capture' %}
+{% if source.kind == 'app_snapshot' %}
     if [[ "$i" == {{ loop.index0 }} ]]; then
-        if capture_json="$({{ source.capture_command | map('quote') | join(' ') }})" &&
-            capture_path="$(printf '%s' "$capture_json" | "$CAPTURE_RESULT" "${PATHS[$i]}" "${DATASETS[$i]}")" &&
-            "$GUARD" "$capture_path" "${DATASETS[$i]}"; then
-            PATHS[$i]="$capture_path"
+        if snapshot_json="$("$APP_SNAPSHOTS" {{ source.app | quote }})" &&
+            snapshot_path="$(printf '%s' "$snapshot_json" | "$SNAPSHOT_RESULT" "${PATHS[$i]}" "${DATASETS[$i]}")" &&
+            "$GUARD" "$snapshot_path" "${DATASETS[$i]}"; then
+            PATHS[$i]="$snapshot_path"
         else
-            echo "Consistent immutable capture failed for $share" >&2
-            capture_ok=0
+            echo "Consistent immutable app snapshot failed for $share" >&2
+            snapshot_ok=0
         fi
     fi
 {% endif %}
 {% endfor %}
-    if ((capture_ok == 0)); then
+    if ((snapshot_ok == 0)); then
         printf 'b2_backup_failed{share="%s", bucket_name="%s"} %s\n' "$share" "$BUCKET_NAME" "$(date +%s)" >> "$metric_tmp"
         result=1
         continue
@@ -87,7 +89,12 @@ for i in "${!SHARES[@]}"; do
     if backup_share "$share" "${PATHS[$i]}" "${DATASETS[$i]}"; then
         printf 'b2_backup_completed{share="%s", bucket_name="%s"} %s\n' "$share" "$BUCKET_NAME" "$(date +%s)" >> "$metric_tmp"
 {% if backup_pruning_approved %}
-        if "$RESTIC" --retry-lock "$LOCK_RETRY_DURATION" forget --keep-daily 7 --keep-weekly 5 --keep-monthly 7 --prune; then
+        if [[ "${KINDS[$i]}" == app_snapshot ]]; then
+            retention=(--keep-within 7d)
+        else
+            retention=(--keep-daily 7 --keep-weekly 5 --keep-monthly 7)
+        fi
+        if "$RESTIC" --retry-lock "$LOCK_RETRY_DURATION" forget --group-by host "${retention[@]}" --prune; then
             printf 'b2_cleanup_completed{share="%s", bucket_name="%s"} %s\n' "$share" "$BUCKET_NAME" "$(date +%s)" >> "$metric_tmp"
         else
             echo "Cleanup failed for $share" >&2
