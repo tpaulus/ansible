@@ -21,11 +21,6 @@ backup_sources:
     kind: app_snapshot
     repository_prefix: Prometheus
     snapshot: "{{ apps_snapshots.prometheus }}"
-  - key: webdav
-    app: webdav
-    kind: app_snapshot
-    repository_prefix: WebDAV
-    snapshot: "{{ apps_snapshots.webdav }}"
 # Original post-hook only published this role's managed completion metric.
 backup_cloud_sync_enabled: true
 backup_cloud_sync_deletion_approved: true

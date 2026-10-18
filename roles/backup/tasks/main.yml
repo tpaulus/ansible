@@ -45,6 +45,31 @@
     state: directory
     mode: "0755"
 
+- name: Remove the previous aggregate backup metrics file
+  ansible.builtin.file:
+    path: "{{ backup_metrics_dir }}/b2_backup.prom"
+    state: absent
+
+- name: Find per-repository backup metrics
+  ansible.builtin.find:
+    paths: "{{ backup_metrics_dir }}"
+    patterns: "b2_backup_*.prom"
+    file_type: file
+  register: backup_existing_metrics
+
+- name: Remove metrics for repositories no longer configured
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: absent
+  vars:
+    backup_metric_filenames: >-
+      {{ backup_sources | map(attribute='key') | map('regex_replace', '^', 'b2_backup_') |
+      map('regex_replace', '$', '.prom') | list }}
+  loop: "{{ backup_existing_metrics.files }}"
+  loop_control:
+    label: "{{ item.path | basename }}"
+  when: item.path | basename not in backup_metric_filenames
+
 - name: Create backup helper directory
   ansible.builtin.file:
     path: /usr/local/libexec

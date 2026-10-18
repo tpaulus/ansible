@@ -338,8 +338,8 @@ limits on the active clone as well as preserving the retained source's limits.
 `app-snapshots NAME` stops the application, takes atomic ZFS snapshots, resumes
 it, and stages a completed generation for Restic. Jellyfin configuration/state
 and Prometheus configuration are included; Prometheus metric data is not.
-WebDAV snapshots include only its private state/configuration, not Svalbard
-documents: those are already backups from an offsite appliance.
+WebDAV's private state/configuration is no longer included in Restic backups;
+Svalbard documents are backed up separately from an offsite appliance.
 
 Local app snapshots and staged generations expire after seven days
 (`apps_snapshot_retention_days`). Cleanup runs before snapshots and independently
@@ -353,7 +353,13 @@ dataset paths remain unchanged to avoid a storage migration; new generations use
 Upgrade with a full storage provisioning run (or `--tags apps,backups`) so every
 new policy is installed before the backup role retires the legacy commands.
 
-`backup_sources` selects file datasets and app snapshots.
+`backup_sources` selects file datasets and app snapshots. The scheduled backup
+runs at most two repositories concurrently, publishes per-repository success,
+failure and duration metrics as each finishes, and does not impose a fixed
+two-hour timeout on a Restic backup. Restic's stuck-request timeout still bounds
+individual stalled backend requests. Prometheus configuration remains backed up;
+its large metric data is excluded. WebDAV state and documents are not included
+in Restic backups.
 `/usr/local/sbin/backup-to-b2` remains the stable backup entry point.
 App repositories retain a seven-day window (`forget --keep-within 7d`);
 file repositories retain their existing 7-daily/5-weekly/7-monthly policy.

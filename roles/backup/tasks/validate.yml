@@ -4,7 +4,9 @@
     that:
       - backup_sources | length > 0
       - backup_sources | map(attribute='key') | unique | length == backup_sources | length
+      - backup_sources | selectattr('key', 'match', '^[a-z0-9_-]+$') | list | length == backup_sources | length
       - backup_sources | map(attribute='repository_prefix') | unique | length == backup_sources | length
+      - backup_max_concurrent | int > 0
       - >-
         backup_required_apps | difference(backup_sources | selectattr('kind', 'equalto', 'app_snapshot')
         | map(attribute='app') | list) | length == 0

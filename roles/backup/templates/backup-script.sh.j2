@@ -13,29 +13,42 @@ export AWS_SECRET_ACCESS_KEY={{ b2_account_key | quote }}
 BUCKET_NAME={{ offsite_b2_bucket_name | quote }}
 S3_ENDPOINT={{ b2_s3_endpoint | quote }}
 SHARES=({% for source in sources %}{{ source.repository_prefix | quote }} {% endfor %})
+KEYS=({% for source in sources %}{{ source.key | quote }} {% endfor %})
 PATHS=({% for source in sources %}{% set storage = config_resolved.datasets[source.dataset_key] if source.kind == 'files' else source.snapshot %}{{ storage.path | quote }} {% endfor %})
 DATASETS=({% for source in sources %}{% set storage = config_resolved.datasets[source.dataset_key] if source.kind == 'files' else source.snapshot %}{{ storage.dataset | quote }} {% endfor %})
 KINDS=({% for source in sources %}{{ source.kind | quote }} {% endfor %})
+APPS=({% for source in sources %}{{ source.app | default('') | quote }} {% endfor %})
 GUARD={{ backup_mount_guard | quote }}
 SNAPSHOT_RESULT={{ backup_snapshot_result_bin | quote }}
 APP_SNAPSHOTS={{ backup_app_snapshots_bin | quote }}
 MAX_RETRIES="${MAX_RETRIES:-3}"
 BASE_RETRY_DELAY="${BASE_RETRY_DELAY:-30}"
 MAX_RETRY_DELAY="${MAX_RETRY_DELAY:-300}"
-BACKUP_TIMEOUT_SECONDS="${BACKUP_TIMEOUT_SECONDS:-7200}"
+MAX_CONCURRENT_BACKUPS={{ backup_max_concurrent | int }}
 LOCK_RETRY_DURATION="${LOCK_RETRY_DURATION:-5m}"
-metrics={{ (backup_metrics_dir ~ '/b2_backup.prom') | quote }}
-metric_tmp="$metrics.$$"
-: > "$metric_tmp"
-trap 'rm -f "$metric_tmp"; unset RESTIC_PASSWORD AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY' EXIT
+metrics_dir={{ backup_metrics_dir | quote }}
+metric_tmp=""
+cleanup() {
+    if [[ -n "$metric_tmp" ]]; then
+        rm -f -- "$metric_tmp"
+    fi
+    unset RESTIC_PASSWORD AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY
+}
+trap cleanup EXIT
+
+if [[ ! "$MAX_CONCURRENT_BACKUPS" =~ ^[1-9][0-9]*$ ]]; then
+    echo "Invalid maximum concurrent backup count: $MAX_CONCURRENT_BACKUPS" >&2
+    exit 2
+fi
 
 backup_share() {
     local share="$1" source_path="$2" dataset="$3" attempt delay
     for ((attempt=1; attempt<=MAX_RETRIES; attempt++)); do
         echo "Backing up $share (attempt $attempt/$MAX_RETRIES)"
-        "$GUARD" "$source_path" "$dataset" || return 1
-        if timeout --kill-after=5m "$BACKUP_TIMEOUT_SECONDS" \
-            "$RESTIC" --retry-lock "$LOCK_RETRY_DURATION" --stuck-request-timeout 5m \
+        if ! "$GUARD" "$source_path" "$dataset"; then
+            return 1
+        fi
+        if "$RESTIC" --retry-lock "$LOCK_RETRY_DURATION" --stuck-request-timeout 5m \
             backup --group-by host --cleanup-cache "$source_path"; then
             return 0
         fi
@@ -49,65 +62,110 @@ backup_share() {
     return 1
 }
 
-result=0
-for i in "${!SHARES[@]}"; do
-    share="${SHARES[$i]}"
+backup_source() {
+    local i="$1"
+    local share="${SHARES[$i]}" key="${KEYS[$i]}"
+    local source_path="${PATHS[$i]}" dataset="${DATASETS[$i]}"
+    local kind="${KINDS[$i]}" app="${APPS[$i]}"
+    local started="$SECONDS" snapshot_path="$source_path"
+    local snapshot_json="" backup_ok=0 cleanup_ok=0 result=0
+    local completed_at="" finished_at="" duration=""
+
+    metric_tmp="$metrics_dir/.b2_backup_${key}.prom.$$"
     export RESTIC_REPOSITORY="s3:$S3_ENDPOINT/$BUCKET_NAME/$share"
-    if ! "$GUARD" "${PATHS[$i]}" "${DATASETS[$i]}"; then
-        printf 'b2_backup_failed{share="%s", bucket_name="%s"} %s\n' "$share" "$BUCKET_NAME" "$(date +%s)" >> "$metric_tmp"
+
+    if ! "$GUARD" "$source_path" "$dataset"; then
+        echo "Backup source guard failed for $share" >&2
         result=1
-        continue
-    fi
-    snapshot_ok=1
-{% for source in sources %}
-{% if source.kind == 'app_snapshot' %}
-    if [[ "$i" == {{ loop.index0 }} ]]; then
-        if snapshot_json="$("$APP_SNAPSHOTS" {{ source.app | quote }})" &&
-            snapshot_path="$(printf '%s' "$snapshot_json" | "$SNAPSHOT_RESULT" "${PATHS[$i]}" "${DATASETS[$i]}")" &&
-            "$GUARD" "$snapshot_path" "${DATASETS[$i]}"; then
-            PATHS[$i]="$snapshot_path"
+    elif [[ "$kind" == app_snapshot ]]; then
+        if snapshot_json="$("$APP_SNAPSHOTS" "$app")" &&
+            snapshot_path="$(printf '%s' "$snapshot_json" | "$SNAPSHOT_RESULT" "$source_path" "$dataset")" &&
+            "$GUARD" "$snapshot_path" "$dataset"; then
+            source_path="$snapshot_path"
         else
             echo "Consistent immutable app snapshot failed for $share" >&2
-            snapshot_ok=0
-        fi
-    fi
-{% endif %}
-{% endfor %}
-    if ((snapshot_ok == 0)); then
-        printf 'b2_backup_failed{share="%s", bucket_name="%s"} %s\n' "$share" "$BUCKET_NAME" "$(date +%s)" >> "$metric_tmp"
-        result=1
-        continue
-    fi
-    # Missing repositories must be initialized explicitly; connection/auth errors
-    # must never be mistaken for an uninitialized repository.
-    if ! "$RESTIC" snapshots >/dev/null; then
-        echo "Cannot open repository for $share; check credentials or initialize it explicitly" >&2
-        printf 'b2_backup_failed{share="%s", bucket_name="%s"} %s\n' "$share" "$BUCKET_NAME" "$(date +%s)" >> "$metric_tmp"
-        result=1
-        continue
-    fi
-    if backup_share "$share" "${PATHS[$i]}" "${DATASETS[$i]}"; then
-        printf 'b2_backup_completed{share="%s", bucket_name="%s"} %s\n' "$share" "$BUCKET_NAME" "$(date +%s)" >> "$metric_tmp"
-{% if backup_pruning_approved %}
-        if [[ "${KINDS[$i]}" == app_snapshot ]]; then
-            retention=(--keep-within 7d)
-        else
-            retention=(--keep-daily 7 --keep-weekly 5 --keep-monthly 7)
-        fi
-        if "$RESTIC" --retry-lock "$LOCK_RETRY_DURATION" forget --group-by host "${retention[@]}" --prune; then
-            printf 'b2_cleanup_completed{share="%s", bucket_name="%s"} %s\n' "$share" "$BUCKET_NAME" "$(date +%s)" >> "$metric_tmp"
-        else
-            echo "Cleanup failed for $share" >&2
             result=1
         fi
+    fi
+
+    if ((result == 0)); then
+        if ! "$RESTIC" --retry-lock "$LOCK_RETRY_DURATION" --stuck-request-timeout 5m snapshots >/dev/null; then
+            echo "Cannot open repository for $share; check credentials or initialize it explicitly" >&2
+            result=1
+        elif backup_share "$share" "$source_path" "$dataset"; then
+            backup_ok=1
+            completed_at="$(date +%s)"
+{% if backup_pruning_approved %}
+            if [[ "$kind" == app_snapshot ]]; then
+                retention=(--keep-within 7d)
+            else
+                retention=(--keep-daily 7 --keep-weekly 5 --keep-monthly 7)
+            fi
+            if "$RESTIC" --retry-lock "$LOCK_RETRY_DURATION" --stuck-request-timeout 5m \
+                forget --group-by host "${retention[@]}" --prune; then
+                cleanup_ok=1
+            else
+                echo "Cleanup failed for $share" >&2
+                result=1
+            fi
 {% else %}
-        echo "Restic retention is disabled for $share until restore acceptance"
+            echo "Restic retention is disabled for $share until restore acceptance"
 {% endif %}
+        else
+            result=1
+        fi
+    fi
+
+    finished_at="$(date +%s)"
+    duration=$((SECONDS - started))
+    {
+        if ((backup_ok)); then
+            printf 'b2_backup_completed{share="%s", bucket_name="%s"} %s\n' "$share" "$BUCKET_NAME" "$completed_at"
+        else
+            printf 'b2_backup_failed{share="%s", bucket_name="%s"} %s\n' "$share" "$BUCKET_NAME" "$finished_at"
+        fi
+        if ((cleanup_ok)); then
+            printf 'b2_cleanup_completed{share="%s", bucket_name="%s"} %s\n' "$share" "$BUCKET_NAME" "$finished_at"
+        fi
+        printf 'b2_backup_duration_seconds{share="%s", bucket_name="%s"} %s\n' "$share" "$BUCKET_NAME" "$duration"
+    } > "$metric_tmp"
+    chmod 0644 "$metric_tmp"
+    mv -f -- "$metric_tmp" "$metrics_dir/b2_backup_${key}.prom"
+    metric_tmp=""
+    return "$result"
+}
+
+result=0
+backup_pids=()
+wait_for_backup() {
+    local finished_pid=""
+    local status=0
+    local remaining=()
+    if wait -n -p finished_pid "${backup_pids[@]}"; then
+        status=0
     else
-        printf 'b2_backup_failed{share="%s", bucket_name="%s"} %s\n' "$share" "$BUCKET_NAME" "$(date +%s)" >> "$metric_tmp"
+        status=$?
+    fi
+    if [[ -z "$finished_pid" ]]; then
+        echo "Could not identify completed backup process" >&2
         result=1
+        return
+    fi
+    for pid in "${backup_pids[@]}"; do
+        [[ "$pid" == "$finished_pid" ]] || remaining+=("$pid")
+    done
+    backup_pids=("${remaining[@]}")
+    ((status == 0)) || result=1
+}
+
+for i in "${!SHARES[@]}"; do
+    backup_source "$i" &
+    backup_pids+=("$!")
+    if ((${#backup_pids[@]} >= MAX_CONCURRENT_BACKUPS)); then
+        wait_for_backup
     fi
 done
-chmod 0644 "$metric_tmp"
-mv "$metric_tmp" "$metrics" || exit 1
+while ((${#backup_pids[@]} > 0)); do
+    wait_for_backup
+done
 exit "$result"
