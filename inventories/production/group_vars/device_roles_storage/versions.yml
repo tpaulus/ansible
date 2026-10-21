@@ -3,7 +3,7 @@
 # renovate: datasource=docker depName=ghcr.io/jellyfin/jellyfin
 jellyfin_image: "ghcr.io/jellyfin/jellyfin:12.2@sha256:c3efa69a22f2691fc88d6bb035e87a8560e395a6047f062fb381c61c3185e8f5"
 # renovate: datasource=docker depName=prom/prometheus
-prometheus_image: "prom/prometheus:v3.15.0@sha256:efd719c99d83b060d9daefdcf00360461adf279f45ef5391f8d111892118753e"
+prometheus_image: "prom/prometheus:v3.15.1@sha256:fa3302279710be2f21a8301ec17a8b4f2301fd829bd113839b3b6b02b6f191a2"
 # renovate: datasource=docker depName=httpd
 webdav_image: "httpd:2.4.69@sha256:a30cd4cd57f3f3c3be9b2d16384d2488839996bb14c67df2b51f1ecbb3e584a1"
 # renovate: datasource=github-releases depName=grafana/alloy extractVersion=^v(?<version>.*)$
