@@ -1,6 +1,6 @@
 ---
 - name: Configure the applier administrator account
-  hosts: device_roles_storage:device_roles_compute:device_roles_firewall:!tags_home_assistant
+  hosts: device_roles_storage:device_roles_compute
   become: true
   gather_facts: true
   vars:
@@ -47,6 +47,8 @@
         name: applier
         uid: "{{ applier_id }}"
         group: applier
+        groups: "{{ ['ssh'] if 'ssh' in ansible_facts.getent_group else omit }}"
+        append: "{{ 'ssh' in ansible_facts.getent_group or inventory_hostname | lower == 'beaconhill' }}"
         create_home: true
         shell: /bin/bash
         password_lock: true

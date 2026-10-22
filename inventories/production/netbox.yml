@@ -20,11 +20,18 @@ query_filters:
   - role: compute
   - role: storage
   - role: firewall
-# - role: core-switch
-# - role: edge-switch
 
 device_query_filters:
   - has_primary_ip: 'true'
-  - status__n: offline     # Adding '__n' to a field searches for the negation of the value.
-  - manufacturer_id__n: 5  # Don't touch Unifi Devices
-  - site_id: 1             # Only modify WSS Devices
+  - status__n: offline      # Adding '__n' to a field searches for the negation of the value.
+  - manufacturer_id__n: 5   # Don't touch Unifi Devices
+  - site_id: 1              # Only modify LFP Devices
+  - tag__n: home_assistant  # Exclude Host as HomeAssistant OS doesn't like being externally managed
+
+rename_variables:
+  - pattern: '^prometheus-plugin-prometheus-sd$'
+    repl: prometheus_plugin_prometheus_sd
+  - pattern: '^serial$'
+    repl: device_serial
+  - pattern: '^tags$'
+    repl: device_tags
