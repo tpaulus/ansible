@@ -161,11 +161,11 @@ wait_for_backup() {
 for i in "${!SHARES[@]}"; do
     backup_source "$i" &
     backup_pids+=("$!")
-    if ((${#backup_pids[@]} >= MAX_CONCURRENT_BACKUPS)); then
+    if (({% raw %}${#backup_pids[@]}{% endraw %} >= MAX_CONCURRENT_BACKUPS)); then
         wait_for_backup
     fi
 done
-while ((${#backup_pids[@]} > 0)); do
+while (({% raw %}${#backup_pids[@]}{% endraw %} > 0)); do
     wait_for_backup
 done
 exit "$result"
