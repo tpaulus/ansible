@@ -5,3 +5,10 @@
   ansible.builtin.import_playbook: provision/storage.yml
 - name: Configure K3s
   ansible.builtin.import_playbook: provision/k3s.yml
+- name: Record the successful Ansible run
+  hosts: all
+  become: true
+  gather_facts: false
+  tags: [always]
+  roles:
+    - role: last_run_metrics
