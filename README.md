@@ -69,6 +69,7 @@ configuration. Clear `NETBOX_TOKEN` after use.
 ansible-playbook playbooks/site.yml --list-hosts
 ansible-playbook playbooks/site.yml --list-tags
 ansible-playbook playbooks/provision/common.yml --limit HOSTNAME --tags motd
+ansible-playbook playbooks/operations/applier.yml
 ansible-playbook playbooks/provision/k3s.yml
 ansible-playbook playbooks/provision/network.yml --limit FIREWALL
 ansible-playbook playbooks/provision/storage.yml --limit STORAGE
