@@ -5,10 +5,7 @@
 {%- set lblue = "[1;34m" -%}
 
 {{ lgrey ~ "======" ~ reset }} Welcome to {{ bold ~ ansible_facts["hostname"] ~ reset }} {{ lgrey ~ "======" ~ reset }}
-
-{# Keep this empty line #}
-{%- if ansible_facts.get("lsb", {}).get("id") %}
-
+{% if ansible_facts.get("lsb", {}).get("id") %}
 {{ bold }}Booted:{{reset}} {{ ansible_facts["lsb"]["id"] }} {{ ansible_facts["distribution_version"] }} ({{ ansible_facts["lsb"]["codename"] | default('') }})
 {%- endif %}
 
@@ -17,11 +14,10 @@
 {% if device_roles | default([]) %}
 {{ bold }}Role:{{ reset }} {{ device_roles[0] }}
 {% endif %}
-{% if tags | default([]) %}
-
-{{ bold }}Tags:{{ reset }}
-{{ tags | to_nice_yaml | trim() | indent(2, first=true) }}
+{% if device_tags | default([]) %}
+{{ bold }}Tags:{{ reset }} {{ device_tags | join(', ') }}
 {% endif %}
+{{ bold }}Last Ansible apply:{{ reset }} {{ now(utc=true, fmt='%Y-%m-%d %H:%M:%S UTC') }}
 
 {% if motd_netbox_url -%}
 {{ bold }}Netbox:{{ reset }} {{ lblue ~ uline ~ motd_netbox_url ~ reset }}

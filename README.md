@@ -82,6 +82,13 @@ Network provisioning is deliberately separate from `site.yml`. Tags include
 `--tags shares` reconciles storage and share roots without redeploying apps or
 rotating passwords. `--tags logging` can bootstrap Alloy before pool adoption.
 
+The MOTD records its render time in UTC as `Last Ansible apply`; this updates
+whenever the `motd` role runs, not after every unrelated playbook or as proof
+that an entire run succeeded. After applying on actual hosts, check the SSH
+login banner: `Booted` should immediately follow the hostname, NetBox tags
+should appear on one line below `Role` (and be omitted for untagged nodes),
+and the apply timestamp should match the MOTD run.
+
 Keep environment settings in inventory, reusable settings in role defaults
 with the role's prefix, and secrets in encrypted variable files.
 Use FQCNs, modules rather than shell where practical, configuration validation
