@@ -1,4 +1,7 @@
 ---
+- name: Minimize host swapping
+  ansible.builtin.import_tasks: swap.yml
+
 - name: Set system timezone
   community.general.timezone:
     name: "{{ base_timezone }}"
