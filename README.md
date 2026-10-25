@@ -108,6 +108,28 @@ frameworks or approval paperwork.
 - Unbound exporter builds a pinned tag on the controller and rebuilds only
   when the installed version differs.
 
+### Swap tuning
+
+The `base` role sets `vm.swappiness=1` immediately and persistently on **all
+inventory hosts**, including compute, storage, K3s and firewall hosts. This
+requires Linux and strongly favors reclaiming file-backed pages over swapping
+anonymous memory, reducing routine SSD swap writes while keeping existing swap
+available as an emergency buffer. It does not guarantee zero swap I/O or
+prevent out-of-memory kills. Active swap, `/etc/fstab`, systemd units, swap
+files and partitions are left untouched; hosts without swap remain without it.
+
+Apply through `playbooks/site.yml` or `playbooks/provision/common.yml` with
+`--tags base` (and the production Vault argument above). No hosts are changed
+until the playbook is applied. Existing swapped-out pages are not forcibly
+brought back into RAM.
+
+On actual hosts, confirm `sysctl vm.swappiness` reports `1` and
+`swapon --show` lists the same configured swap areas as before. Repeat after
+a planned reboot to verify persistence. Observe `vmstat 1` under representative
+load for swap-in/swap-out activity (`si`/`so`), rather than expecting existing
+swap usage in `free -h` to drop immediately. Confirm a second `--tags base`
+run leaves swap tuning unchanged.
+
 ### Reboot monitoring
 
 The unattended-upgrades role already enables automatic reboots on non-K3s

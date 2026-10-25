@@ -1,0 +1,14 @@
+---
+- name: Require Linux for swap tuning
+  ansible.builtin.assert:
+    that:
+      - ansible_facts['system'] == 'Linux'
+    fail_msg: Host-wide swappiness tuning requires Linux.
+
+- name: Minimize swapping while preserving emergency swap
+  ansible.posix.sysctl:
+    name: vm.swappiness
+    value: "1"
+    sysctl_file: /etc/sysctl.d/99-ansible-swappiness.conf
+    sysctl_set: true
+    state: present
