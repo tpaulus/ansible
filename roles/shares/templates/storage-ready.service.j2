@@ -4,5 +4,5 @@ RequiresMountsFor={% for mount in config_resolved.mounts %}"{{ mount.path }}" {%
 
 [Service]
 Type=oneshot
+RemainAfterExit=yes
 ExecStart=/usr/local/libexec/mount-guard{% for mount in config_resolved.mounts %} "{{ mount.path }}" "{{ mount.dataset }}"{% endfor %}
-
