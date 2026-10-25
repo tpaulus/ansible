@@ -161,6 +161,59 @@
       loop_control:
         label: "{{ item.name }}"
 
+    - name: Gather network service readiness providers
+      ansible.builtin.service_facts:
+
+    - name: Require a supported host network readiness provider
+      ansible.builtin.assert:
+        that: >-
+          ansible_facts.services.get('networking.service', {}).get('status', '') == 'enabled'
+          or ansible_facts.services.get('NetworkManager.service', {}).get('state', '') == 'running'
+          or ansible_facts.services.get('systemd-networkd.service', {}).get('state', '') == 'running'
+        fail_msg: >-
+          Rootless container boot ordering requires enabled Debian networking.service,
+          running NetworkManager, or running systemd-networkd.
+
+    - name: Enable the active network manager's boot readiness check
+      ansible.builtin.systemd_service:
+        name: "{{ item.wait_service }}"
+        enabled: true
+      loop:
+        - {manager: NetworkManager.service, wait_service: NetworkManager-wait-online.service}
+        - {manager: systemd-networkd.service, wait_service: systemd-networkd-wait-online.service}
+      loop_control:
+        label: "{{ item.wait_service }}"
+      when: ansible_facts.services.get(item.manager, {}).get('state', '') == 'running'
+
+    - name: Create host-level drop-in directories for dedicated user managers
+      ansible.builtin.file:
+        path: "/etc/systemd/system/user@{{ item.uid }}.service.d"
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+      loop: "{{ podman_accounts }}"
+      loop_control:
+        label: "{{ item.name }}"
+
+    - name: Order dedicated user managers after host network readiness
+      ansible.builtin.copy:
+        dest: "/etc/systemd/system/user@{{ item.uid }}.service.d/10-network-online.conf"
+        owner: root
+        group: root
+        mode: "0644"
+        content: |
+          [Unit]
+          Wants=network-online.target
+          After=network-online.target
+      loop: "{{ podman_accounts }}"
+      loop_control:
+        label: "{{ item.name }}"
+
+    - name: Reload host service definitions before enabling dedicated user managers
+      ansible.builtin.systemd_service:
+        daemon_reload: true
+
     - name: Enable persistent user managers without interactive sessions
       ansible.builtin.command:
         argv: [loginctl, enable-linger, "{{ item.name }}"]

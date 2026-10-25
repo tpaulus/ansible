@@ -385,6 +385,31 @@ images and Alloy. Each application has a dedicated rootless account and
 lingering user manager. Generated Quadlet services are started, not enabled
 as ordinary installed services. Containers log to journald.
 
+The Podman role orders only the dedicated application user managers after the
+host's `network-online.target`, covering application containers and their Podman
+exporters without delaying unrelated login sessions. Debian's enabled
+`networking.service` orders itself before that target; for running NetworkManager
+or systemd-networkd, the role enables the corresponding wait-online service.
+Provisioning fails if none of these readiness providers is found. A dependency
+on `network-online.target` inside a user Quadlet alone cannot order it against
+the system manager. Keeping the user managers behind the host target also avoids
+starting Podman's short-lived user network wait before a slow boot has finished.
+This is boot-time interface readiness, not a guarantee that DNS or a remote
+service is reachable, and it does not stop containers on later network outages.
+
+Apply with `playbooks/provision/storage.yml --limit WoodlandPark --tags apps`
+(and the production Vault argument above). Existing user managers are not
+restarted just to apply boot ordering. On the host, check
+`systemctl cat user@3100.service` for the network drop-in and inspect
+`systemctl list-dependencies network-online.target` for the enabled readiness
+provider. After a planned reboot, compare
+`journalctl -b -o short-monotonic -u network-online.target -u user@3100.service`
+with `sudo appctl logs jellyfin`, confirm all containers and exporters start
+without manual intervention, and verify Jellyfin playback and client discovery.
+Repeat with delayed network configuration to exercise the original boot race;
+check the wait-online service's journal for timeouts rather than treating an
+active target alone as proof of connectivity.
+
 ```sh
 appctl ls
 sudo appctl status jellyfin
