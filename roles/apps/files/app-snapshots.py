@@ -88,7 +88,7 @@ def wait_ready(config):
                 status = response.status
         except urllib.error.HTTPError as error:
             status = error.code
-        except (urllib.error.URLError, TimeoutError):
+        except OSError:
             status = None
         if status == config.get("readiness_status", 200):
             return
