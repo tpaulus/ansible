@@ -1,0 +1,94 @@
+---
+- name: Verify the restored NAS and optionally verify recovery after a reboot
+  hosts: device_roles_storage
+  become: true
+  gather_facts: true
+  serial: 1
+  tags: [always]
+  vars:
+    verify_pool_name: "{{ verify_pool | default(storage_pools.keys() | first) }}"
+  pre_tasks:
+    - name: Require one confirmed Debian target and the approved pool identity
+      ansible.builtin.assert:
+        that:
+          - ansible_limit | default('') | length > 0
+          - ansible_limit != 'all'
+          - ansible_play_hosts_all | length == 1
+          - verify_confirm | default('') == inventory_hostname
+          - ansible_facts['distribution'] == 'Debian'
+          - verify_pool_name in storage_pools
+          - verify_guid | default(storage_pools[verify_pool_name].guid) | string
+            == storage_pools[verify_pool_name].guid | string
+          - not (verify_reboot | default(false) | bool)
+            or verify_reboot_confirm | default('') == 'REBOOT ' ~ inventory_hostname
+          - not (verify_reboot | default(false) | bool) or not ansible_check_mode
+        fail_msg: >-
+          Limit verification to one Debian NAS, supply verify_confirm=HOST and the approved
+          pool/GUID. Reboot requires verify_reboot=true and REBOOT <host>.
+
+    - name: Validate current NetBox share context
+      ansible.builtin.import_role:
+        name: config
+
+    - name: Resolve reviewed application and mount expectations
+      ansible.builtin.set_fact:
+        verify_pool_guid: "{{ verify_guid | default(storage_pools[verify_pool_name].guid) | string }}"
+        verify_apps: "{{ apps_definitions | resolve_apps(config_resolved, apps_accounts, apps_definitions.keys() | list) }}"
+
+    - name: Resolve every expected share, app and recovery dataset mount
+      ansible.builtin.set_fact:
+        verify_required_mounts: >-
+          {{ (config_resolved.mounts | list)
+             + (verify_apps | map(attribute='mounts') | flatten
+                | selectattr('create', 'defined') | selectattr('create') | list)
+             + (verify_apps | map(attribute='retained_datasets', default=[]) | flatten | list)
+             + apps_snapshot_parents
+             + (apps_snapshots | dict2items | map(attribute='value') | list) }}
+
+    - name: Resolve app datasets with declared limits
+      ansible.builtin.set_fact:
+        verify_limited_datasets: >-
+          {{ (verify_apps | map(attribute='mounts') | flatten
+              | selectattr('properties', 'defined') | selectattr('properties') | list)
+             + (verify_apps | map(attribute='retained_datasets', default=[]) | flatten
+                | selectattr('properties', 'defined') | selectattr('properties') | list) }}
+
+    - name: Verify the approved pool exists before any optional reboot
+      ansible.builtin.command:
+        argv: [zpool, get, -H, -o, value, guid, "{{ verify_pool_name }}"]
+      register: verify_pre_reboot_guid
+      changed_when: false
+
+    - name: Require the approved pool before optional reboot
+      ansible.builtin.assert:
+        that: verify_pre_reboot_guid.stdout | trim == verify_pool_guid
+        fail_msg: "Pool GUID differs; do not reboot into an unexpected storage state."
+
+  tasks:
+    - name: Run read-only verification before reboot
+      ansible.builtin.include_role:
+        name: storage
+        tasks_from: verify-reinstall-checks.yml
+        apply:
+          tags: [always]
+      tags: [always]
+
+    - name: Reboot only when explicitly requested
+      ansible.builtin.reboot:
+        msg: "Explicit storage-host reinstall reboot verification"
+        reboot_timeout: 900
+        connect_timeout: 10
+        test_command: id -u
+      when:
+        - verify_reboot | default(false) | bool
+        - verify_reboot_confirm | default('') == 'REBOOT ' ~ inventory_hostname
+      tags: [reboot]
+
+    - name: Repeat every read-only check after the explicit reboot
+      ansible.builtin.include_role:
+        name: storage
+        tasks_from: verify-reinstall-checks.yml
+        apply:
+          tags: [always]
+      when: verify_reboot | default(false) | bool
+      tags: [reboot]

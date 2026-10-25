@@ -54,6 +54,12 @@
     label: "{{ accounts_ssh_user.key }}"
   when: accounts_ssh_user.value.ssh_access | default(false) | bool
 
+- name: Recreate SMB credentials as part of reinstall site provisioning
+  ansible.builtin.include_tasks: passwords.yml
+  vars:
+    accounts_password_confirm: "{{ inventory_hostname }}"
+  when: accounts_apply_recovery_smb_passwords | default(false) | bool
+
 - name: Manage declared share roots
   ansible.builtin.import_tasks: roots.yml
   tags: [shares]

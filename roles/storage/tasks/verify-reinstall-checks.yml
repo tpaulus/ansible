@@ -1,0 +1,275 @@
+---
+- name: Verify approved pool health, identity and cache-only boot state
+  ansible.builtin.command:
+    argv: [zpool, status, -x, "{{ verify_pool_name }}"]
+  register: storage_verify_pool_health
+  changed_when: false
+
+- name: Require the approved pool to be healthy
+  ansible.builtin.assert:
+    that: "'is healthy' in storage_verify_pool_health.stdout"
+    fail_msg: "Pool health check failed; inspect `zpool status -v {{ verify_pool_name }}` before continuing."
+
+- name: Read approved pool properties
+  ansible.builtin.command:
+    argv: [zpool, get, -H, -o, "property,value", "guid,readonly,cachefile,altroot", "{{ verify_pool_name }}"]
+  register: storage_verify_pool_properties_raw
+  changed_when: false
+
+- name: Require approved identity and normal writable cache-only import state
+  ansible.builtin.assert:
+    that:
+      - verify_pool_properties.guid == verify_guid
+      - verify_pool_properties.readonly == 'off'
+      - verify_pool_properties.cachefile == '/etc/zfs/zpool.cache'
+      - verify_pool_properties.altroot == storage_pools[verify_pool_name].altroot | default('-')
+    fail_msg: "Pool identity or boot-import policy differs; inspect `zpool get all {{ verify_pool_name }}`."
+  vars:
+    verify_pool_properties: "{{ dict(storage_verify_pool_properties_raw.stdout_lines | map('split')) }}"
+
+- name: Verify the approved pool mountpoint
+  ansible.builtin.command:
+    argv: ["{{ storage_mount_guard }}", "{{ storage_pools[verify_pool_name].mountpoint }}", "{{ verify_pool_name }}"]
+  changed_when: false
+
+- name: Verify every configured share, app and retained-state mount
+  ansible.builtin.command:
+    argv: ["{{ storage_mount_guard }}", "{{ item.path }}", "{{ item.dataset }}"]
+  loop: "{{ verify_required_mounts | unique(attribute='path') | list }}"
+  loop_control:
+    label: "{{ item.dataset }} at {{ item.path }}"
+  changed_when: false
+
+- name: Verify application import markers remain on persistent datasets
+  ansible.builtin.command:
+    argv: [cat, "{{ item.path }}/.nas-app-imported"]
+  loop: "{{ verify_apps | map(attribute='mounts') | flatten | selectattr('require_import', 'defined') | selectattr('require_import') | list }}"
+  loop_control:
+    label: "{{ item.import_name }}"
+  register: storage_verify_import_markers
+  changed_when: false
+  failed_when: storage_verify_import_markers.stdout | trim != item.item.import_name
+
+- name: Verify the mounted pool root is the approved pool
+  ansible.builtin.command:
+    argv: [findmnt, --noheadings, --output, SOURCE, --mountpoint, "{{ storage_pools[verify_pool_name].mountpoint }}"]
+  register: storage_verify_pool_root
+  changed_when: false
+
+- name: Refuse a missing or unexpected mounted pool root
+  ansible.builtin.assert:
+    that: storage_verify_pool_root.stdout | trim == verify_pool_name
+    fail_msg: "The pool root mount is wrong; inspect `findmnt -t zfs` and ZFS mount units."
+
+- name: Verify the boot import configuration retains the approved alternate root
+  ansible.builtin.command:
+    argv: [grep, --fixed-strings, --, "-R {{ storage_pools[verify_pool_name].altroot }}", /etc/default/zfs]
+  changed_when: false
+  when: storage_pools[verify_pool_name].altroot | default('') | length > 0
+
+- name: Verify persistent pool cache is present
+  ansible.builtin.stat:
+    path: /etc/zfs/zpool.cache
+    follow: false
+  register: storage_verify_pool_cache
+
+- name: Require the cache-only pool import units
+  ansible.builtin.command:
+    argv: [systemctl, is-enabled, "{{ item.unit }}"]
+  loop:
+    - {unit: zfs-import-cache.service, expected: enabled}
+    - {unit: zfs-import-scan.service, expected: masked}
+    - {unit: "zfs-import@.service", expected: masked}
+    - {unit: zfs-share.service, expected: masked}
+  register: storage_verify_import_units
+  changed_when: false
+  failed_when: verify_import_units.rc not in [0, 1]
+
+- name: Require cache-only boot import policy
+  ansible.builtin.assert:
+    that:
+      - storage_verify_pool_cache.stat.isreg | default(false)
+      - storage_verify_import_units.results[0].stdout | trim == 'enabled'
+      - storage_verify_import_units.results[1].stdout | trim == 'masked'
+      - storage_verify_import_units.results[2].stdout | trim == 'masked'
+      - storage_verify_import_units.results[3].stdout | trim == 'masked'
+    fail_msg: "Boot import policy is incomplete; inspect `systemctl status zfs-import-cache zfs-import-scan zfs-mount`."
+
+- name: Resolve Prometheus runtime and retained source datasets
+  ansible.builtin.set_fact:
+    storage_verify_prometheus_runtime_dataset: >-
+      {{ (verify_apps | selectattr('name', 'equalto', 'prometheus') | first).mounts
+         | selectattr('target', 'equalto', '/data') | map(attribute='dataset') | first }}
+    storage_verify_prometheus_source_dataset: >-
+      {{ (verify_apps | selectattr('name', 'equalto', 'prometheus') | first).retained_datasets
+         | map(attribute='dataset') | first }}
+
+- name: Verify the retained Prometheus TSDB clone origin
+  ansible.builtin.command:
+    argv: [zfs, get, -H, -o, value, origin, "{{ storage_verify_prometheus_runtime_dataset }}"]
+  register: storage_verify_prometheus_origin
+  changed_when: false
+
+- name: Require the Prometheus runtime clone to retain its source dataset
+  ansible.builtin.assert:
+    that: >-
+      storage_verify_prometheus_origin.stdout | trim
+      is search('^' ~ (storage_verify_prometheus_source_dataset | regex_escape) ~ '@')
+    fail_msg: >-
+      Prometheus runtime clone origin changed; inspect
+      `zfs get origin {{ storage_verify_prometheus_runtime_dataset }}`.
+
+- name: Read declared app dataset limits
+  ansible.builtin.command:
+    argv: [zfs, get, -H, -o, "property,value", quota, refquota, "{{ item.dataset }}"]
+  loop: "{{ verify_limited_datasets }}"
+  loop_control:
+    label: "{{ item.dataset }}"
+  register: storage_verify_dataset_limits
+  changed_when: false
+  when: item.properties | default({}) | length > 0
+
+- name: Require each declared app dataset limit
+  ansible.builtin.assert:
+    that:
+      - >-
+        item.item.properties.quota is not defined
+        or dict(item.stdout_lines | map('split')).quota == item.item.properties.quota
+      - >-
+        item.item.properties.refquota is not defined
+        or dict(item.stdout_lines | map('split')).refquota == item.item.properties.refquota
+    fail_msg: "Declared dataset limit differs for {{ item.item.dataset }}; inspect `zfs get quota,refquota {{ item.item.dataset }}`."
+  loop: "{{ storage_verify_dataset_limits.results | default([]) }}"
+  loop_control:
+    label: "{{ item.item.dataset }}"
+
+- name: Verify root ownership of managed application dataset roots
+  ansible.builtin.stat:
+    path: "{{ item.1.path }}"
+    follow: false
+  loop: "{{ verify_apps | subelements('mounts') }}"
+  loop_control:
+    label: "{{ item.1.dataset }}"
+  when: item.1.create | default(false) or item.1.create_directory | default(false)
+  register: storage_verify_app_ownership
+
+- name: Require application dataset roots to retain their reviewed numeric identity
+  ansible.builtin.assert:
+    that:
+      - item.stat.isdir | default(false)
+      - not (item.stat.islnk | default(false))
+      - item.stat.uid | int == item.item.0.identity.uid | int
+      - item.stat.gid | int == item.item.0.identity.gid | int
+    fail_msg: >-
+      Dataset root ownership differs for {{ item.item.1.path }}; inspect with
+      `stat -c '%u:%g %a %n' {{ item.item.1.path }}`; do not run permission conversion.
+  loop: "{{ storage_verify_app_ownership.results | default([]) | selectattr('skipped', 'undefined') | list }}"
+  loop_control:
+    label: "{{ item.item.1.dataset }}"
+
+- name: Check Samba syntax
+  ansible.builtin.command:
+    argv: [testparm, -s]
+  changed_when: false
+
+- name: Verify Samba account database entries for all declared share users
+  ansible.builtin.command:
+    argv: [pdbedit, -L, -u, "{{ item }}"]
+  loop: "{{ config_resolved.smb | map(attribute='valid_users') | flatten | unique | list }}"
+  register: storage_verify_smb_users
+  changed_when: false
+  failed_when: storage_verify_smb_users.rc != 0
+
+- name: Verify active SMB, NFS, UPS and monitoring services
+  ansible.builtin.command:
+    argv: [systemctl, is-active, "{{ item }}"]
+  loop: [smbd.service, nfs-server.service, nut.target]
+  register: storage_verify_core_services
+  changed_when: false
+  failed_when: storage_verify_core_services.rc != 0
+
+- name: Verify Node Exporter service is active
+  ansible.builtin.service_facts:
+
+- name: Require a running Node Exporter service
+  ansible.builtin.assert:
+    that: >-
+      ansible_facts['services'] | dict2items
+      | selectattr('key', 'match', '^(?:.*[-_])?node[_-]exporter(?:\.service)?$')
+      | selectattr('value.state', 'equalto', 'running')
+      | list | length > 0
+    fail_msg: "Node Exporter is not running; inspect its matching systemd unit and journal."
+
+- name: Verify all three rootless application services
+  ansible.builtin.command:
+    argv: [systemctl, --user, is-active, "{{ item.name }}.service"]
+  become: true
+  become_user: "{{ item.account }}"
+  environment:
+    HOME: "{{ item.identity.home }}"
+    XDG_RUNTIME_DIR: "/run/user/{{ item.identity.uid }}"
+    DBUS_SESSION_BUS_ADDRESS: "unix:path=/run/user/{{ item.identity.uid }}/bus"
+  loop: "{{ verify_apps }}"
+  loop_control:
+    label: "{{ item.name }}"
+  register: storage_verify_app_services
+  changed_when: false
+  failed_when: storage_verify_app_services.rc != 0
+
+- name: Verify each application readiness endpoint
+  ansible.builtin.uri:
+    url: "{{ item.readiness_url }}"
+    status_code: "{{ item.readiness_status | default(200) }}"
+    return_content: false
+  loop: "{{ verify_apps }}"
+  loop_control:
+    label: "{{ item.name }}"
+
+- name: Verify expected scheduled backup and maintenance timers
+  ansible.builtin.command:
+    argv: [systemctl, is-enabled, "{{ item }}"]
+  loop:
+    - restic.timer
+    - restic-check.timer
+    - cloud-sync.timer
+    - sanoid.timer
+    - maintenance-metrics.timer
+    - app-snapshots-prune.timer
+    - apt-daily.timer
+    - apt-daily-upgrade.timer
+    - reboot-metrics.timer
+  register: storage_verify_timers
+  changed_when: false
+  when: >-
+    (item != 'cloud-sync.timer' or backup_cloud_sync_enabled | bool)
+    and (item not in ['restic.timer', 'restic-check.timer'] or backup_timer_enabled | bool)
+
+- name: Require all configured schedules to be enabled
+  ansible.builtin.assert:
+    that: item.rc == 0
+    fail_msg: "Expected schedule {{ item.item }} is not enabled; inspect its timer and service journal."
+  loop: "{{ storage_verify_timers.results | default([]) | selectattr('skipped', 'undefined') | list }}"
+  loop_control:
+    label: "{{ item.item }}"
+
+- name: Verify the approved pool remains included in packaged periodic scrubs
+  ansible.builtin.command:
+    argv: [zfs, get, -H, -o, value, org.debian:periodic-scrub, "{{ verify_pool_name }}"]
+  register: storage_verify_scrub_schedule
+  changed_when: false
+
+- name: Require the configured scrub schedule to be enabled
+  ansible.builtin.assert:
+    that: storage_verify_scrub_schedule.stdout | trim == 'enable'
+    fail_msg: "Pool scrub scheduling is not restored; reconcile the maintenance role."
+
+- name: Report the last successful Ansible-run metric when present
+  ansible.builtin.stat:
+    path: "{{ last_run_metrics_dir }}/ansible_last_run.prom"
+    follow: false
+  register: storage_verify_last_run_metric
+
+- name: Confirm the Ansible-run metric was published
+  ansible.builtin.assert:
+    that: storage_verify_last_run_metric.stat.isreg | default(false)
+    fail_msg: "Successful reconciliation metric is missing; inspect Node Exporter textfile collector."

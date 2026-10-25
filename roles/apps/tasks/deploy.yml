@@ -85,34 +85,6 @@
   loop_control:
     label: "{{ item.item.0.path }}/{{ item.item.1 }}"
 
-- name: Prepare private storage for the original Prometheus configuration
-  ansible.builtin.file:
-    path: "{{ apps_app.identity.home }}/.source-configuration"
-    state: directory
-    owner: root
-    group: root
-    mode: "0700"
-  when: apps_app.name == 'prometheus'
-
-- name: Check for the previously preserved Prometheus configuration
-  ansible.builtin.stat:
-    path: "{{ apps_app.identity.home }}/.source-configuration/prometheus-source.tar"
-    get_checksum: false
-  register: apps_prometheus_archive
-  when: apps_app.name == 'prometheus'
-
-- name: Preserve imported Prometheus configuration before its first replacement
-  community.general.archive:
-    path: "{{ (apps_app.mounts | selectattr('target', 'equalto', '/config') | first).path }}/"
-    dest: "{{ apps_app.identity.home }}/.source-configuration/prometheus-source.tar"
-    format: tar
-    owner: root
-    group: root
-    mode: "0600"
-  when:
-    - apps_app.name == 'prometheus'
-    - not apps_prometheus_archive.stat.exists
-
 - name: Stage repository-owned Prometheus configuration for validation
   ansible.builtin.template:
     src: prometheus.yml.j2

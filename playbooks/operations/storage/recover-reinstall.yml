@@ -1,0 +1,209 @@
+---
+- name: Migrate the installer-created administrator through the applier account
+  ansible.builtin.import_playbook: migrate-installer-admin.yml
+
+- name: Import approved storage, then run normal site provisioning
+  hosts: device_roles_storage
+  become: true
+  gather_facts: true
+  serial: 1
+  pre_tasks:
+    - name: Detect the protected source appliance
+      ansible.builtin.stat:
+        path: /usr/bin/midclt
+      register: recover_appliance
+
+    - name: Select the pool configured for this host
+      ansible.builtin.set_fact:
+        recover_pool_name: "{{ recover_pool | default(storage_pools.keys() | first) }}"
+
+    - name: Require one explicitly limited Debian target and an inventory-approved pool
+      ansible.builtin.assert:
+        that:
+          - ansible_limit | default('') | length > 0
+          - ansible_limit != 'all'
+          - ansible_play_hosts_all | length == 1
+          - ansible_facts['distribution'] == 'Debian'
+          - not recover_appliance.stat.exists
+          - recover_pool_name in storage_pools
+          - not ansible_check_mode
+        fail_msg: >-
+          Limit recovery to one Debian target.
+          Run only after the previous host is offline; backups are assumed.
+
+    - name: Resolve the approved pool GUID from inventory
+      ansible.builtin.set_fact:
+        recover_pool_guid: "{{ storage_pools[recover_pool_name].guid | string }}"
+
+    - name: Check whether OpenZFS is installed
+      ansible.builtin.stat:
+        path: /usr/sbin/zpool
+      register: recover_zpool_binary
+
+    - name: Read imported pools without importing any storage
+      ansible.builtin.command:
+        argv: [zpool, list, -H, -o, name]
+      register: recover_imported
+      changed_when: false
+      failed_when: recover_imported.rc not in [0, 1]
+      when: recover_zpool_binary.stat.exists
+
+    - name: Record the current import set
+      ansible.builtin.set_fact:
+        recover_imported_names: "{{ recover_imported.stdout_lines | default([]) }}"
+
+    - name: Refuse any imported pool other than the approved one
+      ansible.builtin.assert:
+        that:
+          - recover_imported_names | sort in [[], [recover_pool_name]]
+        fail_msg: "Unexpected storage is already imported; stop and inspect it before recovery."
+
+    - name: Read the approved imported pool state
+      ansible.builtin.command:
+        argv: [zpool, get, -H, -o, "property,value", "guid,readonly,cachefile,altroot", "{{ recover_pool_name }}"]
+      register: recover_pool_properties_raw
+      changed_when: false
+      when: recover_imported_names == [recover_pool_name]
+
+    - name: Read imported dataset mount state
+      ansible.builtin.command:
+        argv: [zfs, get, -Hr, -o, value, mounted, "{{ recover_pool_name }}"]
+      register: recover_mount_states
+      changed_when: false
+      when: recover_imported_names == [recover_pool_name]
+
+    - name: Resolve imported pool properties
+      ansible.builtin.set_fact:
+        recover_pool_properties: "{{ dict(recover_pool_properties_raw.stdout_lines | map('split')) }}"
+      when: recover_imported_names == [recover_pool_name]
+
+    - name: Classify the imported pool phase
+      ansible.builtin.set_fact:
+        recover_pool_state: "{{ 'inspection' if recover_pool_properties.readonly == 'on' else 'active' }}"
+      when: recover_imported_names == [recover_pool_name]
+
+    - name: Require the approved read-only inspection or writable pool state
+      ansible.builtin.assert:
+        that:
+          - recover_pool_properties.guid == recover_pool_guid
+          - recover_pool_properties.cachefile == 'none'
+          - recover_pool_properties.altroot == storage_pools[recover_pool_name].altroot | default('-')
+          - recover_pool_properties.readonly in ['on', 'off']
+          - recover_pool_properties.readonly != 'on' or 'yes' not in recover_mount_states.stdout_lines
+        fail_msg: >-
+          Imported storage is not the approved read-only/unmounted inspection state or
+          writable pool state. Do not export or reimport it to recover from later failures.
+      when: recover_imported_names == [recover_pool_name]
+
+    - name: Mark an absent pool for the initial preparation phase
+      ansible.builtin.set_fact:
+        recover_pool_state: absent
+      when: recover_imported_names | length == 0
+
+  tasks:
+    - name: Resolve NetBox share context for storage preflight
+      ansible.builtin.import_role:
+        name: config
+
+    - name: Prepare Debian without allowing automatic pool import
+      ansible.builtin.include_role:
+        name: storage
+        tasks_from: prepare-host
+      vars:
+        storage_prepare_confirm: "{{ inventory_hostname }}"
+      when: recover_pool_state == 'absent'
+
+    - name: Adopt the approved pool read-only before activating it
+      ansible.builtin.include_role:
+        name: storage
+        tasks_from: adopt-pool
+      vars:
+        storage_adopt_confirm: "{{ inventory_hostname }}"
+        storage_adopt_pool: "{{ recover_pool_name }}"
+        storage_adopt_guid: "{{ recover_pool_guid }}"
+        storage_adopt_backups_verified: true
+        storage_adopt_inspection_only: false
+        storage_adopt_allow_stale_hostid: false
+      when: recover_pool_state == 'absent'
+
+    - name: Activate the approved pool from its unmounted read-only state
+      ansible.builtin.include_role:
+        name: storage
+        tasks_from: activate-pool
+      vars:
+        storage_activate_confirm: "ACTIVATE {{ inventory_hostname }}"
+        storage_activate_pool: "{{ recover_pool_name }}"
+        storage_activate_guid: "{{ recover_pool_guid }}"
+        storage_activate_backups_verified: true
+        storage_activate_previous_host_offline: true
+      when: recover_pool_state in ['absent', 'inspection']
+
+    - name: Install the storage path guard
+      ansible.builtin.include_role:
+        name: storage
+        tasks_from: mount-guard.yml
+
+    - name: Finish mounting an already writable pool after an interrupted recovery
+      ansible.builtin.command:
+        argv: [zfs, mount, -a]
+      changed_when: true
+      when: recover_pool_state == 'active'
+
+    - name: Resolve configured application state paths
+      ansible.builtin.set_fact:
+        apps_resolved: "{{ apps_definitions | resolve_apps(config_resolved, apps_accounts, apps_definitions.keys() | list) }}"
+
+    - name: Verify expected share, app and recovery dataset mounts before provisioning
+      ansible.builtin.command:
+        argv: ["/usr/local/libexec/mount-guard", "{{ item.path }}", "{{ item.dataset }}"]
+      loop: >-
+        {{ (config_resolved.mounts | list)
+           + (apps_resolved | map(attribute='mounts') | flatten
+              | selectattr('create', 'defined') | selectattr('create') | list)
+           + (apps_resolved | map(attribute='retained_datasets', default=[]) | flatten | list)
+           + apps_snapshot_parents
+           + (apps_snapshots | dict2items | map(attribute='value') | list)
+           + [storage_pools[recover_pool_name] | combine({'dataset': recover_pool_name,
+               'path': storage_pools[recover_pool_name].mountpoint})] }}
+      loop_control:
+        label: "{{ item.dataset }} at {{ item.path }}"
+      changed_when: false
+
+    - name: Verify required app import markers before provisioning
+      ansible.builtin.command:
+        argv: [cat, "{{ item.path }}/.nas-app-imported"]
+      loop: "{{ apps_resolved | map(attribute='mounts') | flatten | selectattr('require_import', 'defined') | selectattr('require_import') | list }}"
+      loop_control:
+        label: "{{ item.import_name }}"
+      register: recover_import_markers
+      changed_when: false
+      failed_when: recover_import_markers.stdout | trim != item.import_name
+
+    - name: Verify required imported application files
+      ansible.builtin.stat:
+        path: "{{ item.0.path }}/{{ item.1 }}"
+        follow: false
+      loop: >-
+        {{ apps_resolved | map(attribute='mounts') | flatten
+           | selectattr('require_import', 'defined') | selectattr('require_import')
+           | subelements('required_files', skip_missing=true) }}
+      loop_control:
+        label: "{{ item.0.path }}/{{ item.1 }}"
+      register: recover_required_app_state
+
+    - name: Refuse missing or symlinked application data
+      ansible.builtin.assert:
+        that:
+          - item.stat.exists | default(false)
+          - not (item.stat.islnk | default(false))
+        fail_msg: "Required application state is missing or unsafe: {{ item.item.0.path }}/{{ item.item.1 }}"
+      loop: "{{ recover_required_app_state.results }}"
+      loop_control:
+        label: "{{ item.item.0.path }}/{{ item.item.1 }}"
+
+    - name: Apply Vault-backed SMB passwords during normal site provisioning
+      ansible.builtin.set_fact:
+        accounts_apply_recovery_smb_passwords: true
+
+- name: Apply the canonical site configuration
+  ansible.builtin.import_playbook: ../../site.yml

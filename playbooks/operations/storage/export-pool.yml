@@ -1,0 +1,226 @@
+---
+- name: Quiesce and cleanly export one approved NAS pool
+  hosts: device_roles_storage
+  become: true
+  gather_facts: true
+  serial: 1
+  vars:
+    export_pool_name: "{{ export_pool | default(storage_pools.keys() | first) }}"
+    export_pool_guid: "{{ storage_pools[export_pool_name].guid | string }}"
+  tasks:
+    - name: Require one explicitly limited target and approved pool
+      ansible.builtin.assert:
+        that:
+          - ansible_limit | default('') | length > 0
+          - ansible_limit != 'all'
+          - ansible_play_hosts_all | length == 1
+          - ansible_facts['distribution'] == 'Debian'
+          - export_pool_name in storage_pools
+          - not ansible_check_mode
+        fail_msg: >-
+          Limit this operation to one Debian NAS.
+
+    - name: Read the imported pool set without importing any storage
+      ansible.builtin.command:
+        argv: [zpool, list, -H, -o, name]
+      register: export_imported_pools
+      changed_when: false
+      failed_when: export_imported_pools.rc not in [0, 1]
+
+    - name: Refuse pools other than the approved pool
+      ansible.builtin.assert:
+        that:
+          - export_imported_pools.stdout_lines | sort in [[], [export_pool_name]]
+        fail_msg: "Resolve unexpected imported pools before export; this operation will not unmount them."
+
+    - name: Determine whether the approved pool is already imported
+      ansible.builtin.set_fact:
+        export_pool_is_imported: "{{ export_imported_pools.stdout_lines == [export_pool_name] }}"
+
+    - name: Verify the approved pool identity before stopping services
+      ansible.builtin.command:
+        argv: [zpool, get, -H, -o, "property,value", "guid,readonly,altroot", "{{ export_pool_name }}"]
+      register: export_properties_before
+      changed_when: false
+      when: export_pool_is_imported
+
+    - name: Require the approved writable pool and alternate root
+      ansible.builtin.assert:
+        that:
+          - export_properties.guid == export_pool_guid
+          - export_properties.readonly == 'off'
+          - export_properties.altroot == storage_pools[export_pool_name].altroot | default('-')
+        fail_msg: "Pool identity or write-protection state differs from the approved mounted NAS state."
+      vars:
+        export_properties: "{{ dict(export_properties_before.stdout_lines | map('split')) }}"
+      when: export_pool_is_imported
+
+    - name: Recheck physical disk separation before export
+      ansible.builtin.script:
+        cmd: "files/inspect-reinstall-disks.py {{ export_pool_name | quote }}"
+        executable: /usr/bin/python3
+      register: export_disk_report
+      changed_when: false
+      check_mode: false
+      when: export_pool_is_imported
+
+    - name: List installed timers to stop only known scheduling sources
+      ansible.builtin.command:
+        argv: [systemctl, list-unit-files, --type=timer, --no-pager, --no-legend]
+      register: export_timer_inventory
+      changed_when: false
+
+    - name: Select only known NAS and OS scheduling timers
+      ansible.builtin.set_fact:
+        export_installed_timers: "{{ export_timer_inventory.stdout_lines | map('split') | map('first') | list }}"
+        export_relevant_timers:
+          - restic.timer
+          - restic-check.timer
+          - cloud-sync.timer
+          - sanoid.timer
+          - sanoid-prune.timer
+          - app-snapshots-prune.timer
+          - maintenance-metrics.timer
+          - apt-daily.timer
+          - apt-daily-upgrade.timer
+
+    - name: Stop and disable installed NAS and update timers
+      ansible.builtin.systemd_service:
+        name: "{{ item }}"
+        state: stopped
+        enabled: false
+      loop: "{{ export_installed_timers | intersect(export_relevant_timers) }}"
+      loop_control:
+        label: "{{ item }}"
+
+    - name: Find instantiated alternative packaged scrub timers
+      ansible.builtin.command:
+        argv: [systemctl, list-units, --all, --full, --plain, --no-legend, "zfs-scrub-*@*.timer"]
+      register: export_scrub_timers
+      changed_when: false
+
+    - name: Stop and disable instantiated scrub timers
+      ansible.builtin.systemd_service:
+        name: "{{ item.split()[0] }}"
+        state: stopped
+        enabled: false
+      loop: "{{ export_scrub_timers.stdout_lines }}"
+      loop_control:
+        label: "{{ item.split()[0] }}"
+
+    - name: Inspect Debian's periodic ZFS scrub scheduling property
+      ansible.builtin.command:
+        argv: [zfs, get, -H, -o, value, org.debian:periodic-scrub, "{{ export_pool_name }}"]
+      register: export_scrub_policy
+      changed_when: false
+      when: export_pool_is_imported
+
+    - name: Disable only the approved pool's future packaged scrub scheduling
+      ansible.builtin.command:
+        argv: [zfs, set, org.debian:periodic-scrub=disable, "{{ export_pool_name }}"]
+      changed_when: true
+      when:
+        - export_pool_is_imported
+        - export_scrub_policy.stdout | trim == 'enable'
+
+    - name: Wait without a time limit for active storage jobs, locks and scans
+      ansible.builtin.script:
+        cmd: "files/wait-storage-idle.py {{ export_pool_name | quote }}"
+        executable: /usr/bin/python3
+      register: export_idle_wait
+      changed_when: false
+      when: export_pool_is_imported
+
+    - name: Stop selected rootless application services cleanly
+      ansible.builtin.systemd_service:
+        scope: user
+        name: "{{ item.key }}.service"
+        state: stopped
+      become: true
+      become_user: "{{ (apps_accounts | selectattr('name', 'equalto', item.value.account) | first).name }}"
+      environment:
+        HOME: "{{ (apps_accounts | selectattr('name', 'equalto', item.value.account) | first).home }}"
+        XDG_RUNTIME_DIR: "/run/user/{{ (apps_accounts | selectattr('name', 'equalto', item.value.account) | first).uid }}"
+        DBUS_SESSION_BUS_ADDRESS: "unix:path=/run/user/{{ (apps_accounts | selectattr('name', 'equalto', item.value.account) | first).uid }}/bus"
+      loop: "{{ apps_definitions | dict2items }}"
+      loop_control:
+        label: "{{ item.key }}"
+
+    - name: Report active SMB sessions and configured NFS exports before shutdown
+      block:
+        - name: Inspect current Samba sessions
+          ansible.builtin.command:
+            argv: [smbstatus, -b]
+          register: export_smb_sessions
+          changed_when: false
+
+        - name: Show current Samba session report
+          ansible.builtin.debug:
+            var: export_smb_sessions.stdout_lines
+
+        - name: Inspect current NFS exports
+          ansible.builtin.command:
+            argv: [exportfs, -v]
+          register: export_nfs_exports
+          changed_when: false
+
+        - name: Show current NFS export report
+          ansible.builtin.debug:
+            var: export_nfs_exports.stdout_lines
+
+    - name: Unexport all NFS paths before stopping file services
+      ansible.builtin.command:
+        argv: [exportfs, -ua]
+      changed_when: true
+
+    - name: Inspect file-service state before stopping writers
+      ansible.builtin.command:
+        argv: [systemctl, is-active, "{{ item }}"]
+      loop: [smbd.service, nfs-server.service, avahi-daemon.service]
+      register: export_file_service_states
+      changed_when: false
+      failed_when: export_file_service_states.rc not in [0, 3, 4]
+
+    - name: Stop only active file-service writers and discovery
+      ansible.builtin.systemd_service:
+        name: "{{ item.item }}"
+        state: stopped
+      loop: "{{ export_file_service_states.results | selectattr('rc', 'equalto', 0) | list }}"
+      loop_control:
+        label: "{{ item.item }}"
+
+    - name: Inspect pool-backed active swap
+      ansible.builtin.command:
+        argv: [swapon, --show, --noheadings, --raw, --output, NAME]
+      register: export_swap
+      changed_when: false
+
+    - name: Refuse pool-backed swap devices
+      ansible.builtin.assert:
+        that:
+          - >-
+            export_swap.stdout_lines
+              | select('search', '/dev/zvol/' ~ export_pool_name ~ '/')
+            | list | length == 0
+          - >-
+            export_swap.stdout_lines
+              | select('search', '^' ~ storage_pools[export_pool_name].mountpoint ~ '(/|$)')
+            | list | length == 0
+        fail_msg: "Disable and remove pool-backed swap through its managed configuration before export."
+
+    - name: Export only the approved pool normally without forcing unmounts
+      ansible.builtin.command:
+        argv: [zpool, export, "{{ export_pool_name }}"]
+      changed_when: true
+      when: export_pool_is_imported
+
+    - name: Verify that no pool remains imported
+      ansible.builtin.command:
+        argv: [zpool, list, -H, -o, name]
+      register: export_pools_after
+      changed_when: false
+      failed_when: export_pools_after.rc not in [0, 1] or export_pools_after.stdout_lines | length > 0
+
+    - name: Shut down cleanly for the manual Debian installer step
+      community.general.shutdown:
+        msg: "Pool export complete; safe to install Debian on the identified OS disk."

@@ -1,0 +1,211 @@
+---
+- name: Prepare a storage host for Debian reinstall without touching pool contents
+  hosts: device_roles_storage
+  become: true
+  gather_facts: true
+  serial: 1
+  vars:
+    prepare_pool_name: "{{ prepare_pool | default(storage_pools.keys() | first) }}"
+  pre_tasks:
+    - name: Detect the protected source appliance
+      ansible.builtin.stat:
+        path: /usr/bin/midclt
+      register: prepare_appliance
+
+    - name: Require one confirmed Debian storage target
+      ansible.builtin.assert:
+        that:
+          - ansible_limit | default('') | length > 0
+          - ansible_limit != 'all'
+          - ansible_play_hosts_all | length == 1
+          - prepare_confirm | default('') == inventory_hostname
+          - ansible_facts['distribution'] == 'Debian'
+          - not prepare_appliance.stat.exists
+          - prepare_pool_name in storage_pools
+          - prepare_guid | default(storage_pools[prepare_pool_name].guid) | string == storage_pools[prepare_pool_name].guid | string
+          - not ansible_check_mode
+        fail_msg: >-
+          Limit this operation to one Debian host and supply prepare_confirm=HOST,
+          prepare_pool={{ prepare_pool_name }} and its inventory-approved GUID.
+
+  tasks:
+    - name: Validate the current NetBox share context
+      ansible.builtin.import_role:
+        name: config
+
+    - name: Verify every approved pool identity without importing storage
+      ansible.builtin.import_role:
+        name: storage
+        tasks_from: identity
+
+    - name: Verify approved pool backing mounts
+      ansible.builtin.command:
+        argv:
+          - /usr/local/libexec/mount-guard
+          - "{{ item.value.mountpoint }}"
+          - "{{ item.key }}"
+      loop: "{{ storage_pools | dict2items }}"
+      loop_control:
+        label: "{{ item.key }}"
+      changed_when: false
+
+    - name: Require exactly the approved pools to be imported
+      ansible.builtin.command:
+        argv: [zpool, list, -H, -o, name]
+      register: prepare_imported_pools
+      changed_when: false
+
+    - name: Refuse unexpected imported pools
+      ansible.builtin.assert:
+        that:
+          - prepare_imported_pools.stdout_lines | sort == storage_pools.keys() | list | sort
+        fail_msg: "Resolve every unexpected imported pool before preparing this reinstall."
+
+    - name: Identify the current Debian root filesystem type
+      ansible.builtin.command:
+        argv: [findmnt, --noheadings, --output, FSTYPE, --target, /]
+      register: prepare_root_filesystem
+      changed_when: false
+
+    - name: Require the reviewed ext4 operating-system root
+      ansible.builtin.assert:
+        that: prepare_root_filesystem.stdout | trim == 'ext4'
+        fail_msg: "The current root is not the reviewed ext4 OS filesystem; identify disk layout before continuing."
+
+    - name: Record the approved pool health
+      ansible.builtin.command:
+        argv: [zpool, status, -x, "{{ prepare_pool_name }}"]
+      register: prepare_pool_health
+      changed_when: false
+
+    - name: Require the approved pool to be healthy
+      ansible.builtin.assert:
+        that: "'is healthy' in prepare_pool_health.stdout"
+        fail_msg: "The approved pool is not reported healthy; stop and investigate before reinstall."
+
+    - name: Inspect root-disk and pool-vdev physical ancestry
+      ansible.builtin.script:
+        cmd: "files/inspect-reinstall-disks.py {{ prepare_pool_name | quote }}"
+        executable: /usr/bin/python3
+      register: prepare_disk_report
+      changed_when: false
+      check_mode: false
+
+    - name: Read approved pool version and active feature information
+      ansible.builtin.command:
+        argv: [zpool, get, -H, -o, "property,value", all, "{{ prepare_pool_name }}"]
+      register: prepare_pool_features
+      changed_when: false
+
+    - name: Resolve all configured applications
+      ansible.builtin.set_fact:
+        apps_resolved: "{{ apps_definitions | resolve_apps(config_resolved, apps_accounts, apps_definitions.keys() | list) }}"
+
+    - name: Verify imported app and backup datasets are mounted at their approved paths
+      ansible.builtin.command:
+        argv: ["{{ storage_mount_guard }}", "{{ item.path }}", "{{ item.dataset }}"]
+      loop: >-
+        {{ (apps_resolved | map(attribute='mounts') | flatten
+            | selectattr('require_import', 'defined') | selectattr('require_import') | list)
+           + (apps_resolved | map(attribute='retained_datasets', default=[]) | flatten | list)
+           + [apps_snapshots.prometheus] }}
+      loop_control:
+        label: "{{ item.dataset }}"
+      changed_when: false
+
+    - name: Check required imported app datasets and their retained source datasets
+      ansible.builtin.command:
+        argv: [zfs, list, -H, -o, name, "{{ item }}"]
+      loop: >-
+        {{ (apps_resolved | map(attribute='mounts') | flatten
+            | selectattr('require_import', 'defined') | selectattr('require_import')
+            | map(attribute='dataset') | list)
+           + (apps_resolved | map(attribute='retained_datasets', default=[]) | flatten
+              | map(attribute='dataset') | list)
+           + [apps_snapshots.prometheus.dataset] }}
+      register: prepare_app_datasets
+      changed_when: false
+      failed_when: prepare_app_datasets.rc != 0
+
+    - name: Verify imported markers for every retained app-state dataset
+      ansible.builtin.command:
+        argv: [cat, "{{ item.path }}/.nas-app-imported"]
+      loop: "{{ apps_resolved | map(attribute='mounts') | flatten | selectattr('require_import', 'defined') | selectattr('require_import') | list }}"
+      loop_control:
+        label: "{{ item.import_name }}"
+      register: prepare_import_markers
+      changed_when: false
+      failed_when: prepare_import_markers.stdout | trim != item.item.import_name
+
+    - name: Verify every required restored application file
+      ansible.builtin.stat:
+        path: "{{ item.0.path }}/{{ item.1 }}"
+        follow: false
+      loop: >-
+        {{ apps_resolved | map(attribute='mounts') | flatten
+           | selectattr('require_import', 'defined') | selectattr('require_import')
+           | subelements('required_files', skip_missing=true) }}
+      loop_control:
+        label: "{{ item.0.path }}/{{ item.1 }}"
+      register: prepare_required_app_state
+
+    - name: Refuse missing required application data
+      ansible.builtin.assert:
+        that:
+          - item.stat.exists | default(false)
+          - not (item.stat.islnk | default(false))
+        fail_msg: "Required app state is missing or unsafe: {{ item.item.0.path }}/{{ item.item.1 }}"
+      loop: "{{ prepare_required_app_state.results }}"
+      loop_control:
+        label: "{{ item.item.0.path }}/{{ item.item.1 }}"
+
+    - name: Read currently running rootless application images
+      ansible.builtin.command:
+        argv: [podman, ps, --format, json]
+      become: true
+      become_user: "{{ item.account }}"
+      environment:
+        HOME: "{{ item.identity.home }}"
+        XDG_RUNTIME_DIR: "/run/user/{{ item.identity.uid }}"
+        DBUS_SESSION_BUS_ADDRESS: "unix:path=/run/user/{{ item.identity.uid }}/bus"
+      loop: "{{ apps_resolved }}"
+      loop_control:
+        label: "{{ item.name }}"
+      register: prepare_app_images
+      changed_when: false
+      failed_when: prepare_app_images.rc != 0
+
+    - name: Apply declarative administrator access and application state preservation
+      block:
+        - name: Recreate only the explicitly configured administrator access
+          ansible.builtin.import_role:
+            name: accounts
+
+        - name: Reconcile application configuration before cutover
+          ansible.builtin.import_role:
+            name: apps
+
+    - name: Display physical-disk, pool-feature and live app-image inventory
+      ansible.builtin.debug:
+        msg:
+          disk_mapping: "{{ prepare_disk_report.stdout | from_json }}"
+          pool_features: "{{ prepare_pool_features.stdout_lines }}"
+          running_app_images: "{{ prepare_app_images.results | map(attribute='stdout') | list }}"
+          note: "Keep pool members untouched; only the reported Debian root disk is eligible for reinstall."
+
+    - name: Report unmanaged systemd units, timers and cron entry points for owner review
+      ansible.builtin.command:
+        argv: [systemctl, list-timers, --all, --no-pager]
+      register: prepare_timers
+      changed_when: false
+
+    - name: Report configured systemd timers for owner review
+      ansible.builtin.debug:
+        var: prepare_timers.stdout_lines
+
+    - name: Report the reviewed reinstall target and preserved pool
+      ansible.builtin.debug:
+        msg: >-
+          Preparation checks passed for {{ inventory_hostname }}. Reinstall only the
+          Debian root disk identified above; preserve pool {{ prepare_pool_name }} (GUID
+          {{ prepare_guid | default(storage_pools[prepare_pool_name].guid) }}). Inspect any locally added units/timers before wiping.

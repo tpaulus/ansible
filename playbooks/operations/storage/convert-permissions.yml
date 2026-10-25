@@ -67,7 +67,7 @@
         group: root
         mode: "0700"
 
-    - name: Ensure the shared mount guard directory
+    - name: Ensure mount guard directory
       ansible.builtin.file:
         path: /usr/local/libexec
         state: directory

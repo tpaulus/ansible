@@ -1,0 +1,94 @@
+---
+- name: Require explicit adoption identity and backup or read-only inspection approval
+  ansible.builtin.assert:
+    that:
+      - ansible_limit | default('') | length > 0
+      - ansible_limit != 'all'
+      - ansible_play_hosts_all | length == 1
+      - storage_adopt_confirm | default('') == inventory_hostname
+      - >-
+        (storage_adopt_backups_verified | default(false) | bool)
+        or (storage_adopt_inspection_only | default(false) | bool)
+      - storage_adopt_pool | default('') in storage_pools
+      - storage_adopt_guid | default('') | string == storage_pools[storage_adopt_pool | default(storage_pools.keys() | first)].guid | string
+      - >-
+        storage_pools[storage_adopt_pool | default(storage_pools.keys() | first)].altroot is not defined
+        or (storage_pools[storage_adopt_pool | default(storage_pools.keys() | first)].altroot is string
+            and storage_pools[storage_adopt_pool | default(storage_pools.keys() | first)].altroot.startswith('/'))
+    fail_msg: >-
+      Specify one target, approved pool/GUID, storage_adopt_confirm=HOST and either verified
+      backups or explicit storage_adopt_inspection_only=true. Inspection does not approve writes.
+
+- name: Require the previous host to be offline before overriding stale ownership
+  ansible.builtin.assert:
+    that:
+      - >-
+        not (storage_adopt_allow_stale_hostid | default(false) | bool)
+        or (storage_adopt_previous_host_offline | default(false) | bool)
+    fail_msg: Never force an import unless the previous host is verified offline and no other host can access the disks.
+
+- name: Import only the approved pool unmounted and read-only
+  ansible.builtin.command:
+    argv: >-
+      {{ ['zpool', 'import', '-N', '-o', 'readonly=on', '-o', 'cachefile=none']
+         + (['-R', storage_pools[storage_adopt_pool].altroot]
+            if storage_pools[storage_adopt_pool].altroot | default('') | length > 0 else [])
+         + (['-f'] if storage_adopt_allow_stale_hostid | default(false) | bool else [])
+         + [storage_adopt_guid | string] }}
+  changed_when: true
+  when: not ansible_check_mode
+
+- name: Read the imported pool identity and write protection
+  ansible.builtin.command:
+    argv: [zpool, get, -H, -o, "property,value", "guid,readonly,cachefile,altroot", "{{ storage_adopt_pool }}"]
+  register: storage_adopt_properties
+  changed_when: false
+  when: not ansible_check_mode
+
+- name: Verify the import remained read-only without a persistent cache
+  ansible.builtin.assert:
+    that:
+      - storage_adopt_checked_properties.guid == storage_adopt_guid | string
+      - storage_adopt_checked_properties.readonly == 'on'
+      - storage_adopt_checked_properties.cachefile == 'none'
+      - storage_adopt_checked_properties.altroot == storage_pools[storage_adopt_pool].altroot | default('-')
+  vars:
+    storage_adopt_checked_properties: "{{ dict(storage_adopt_properties.stdout_lines | map('split')) }}"
+  when: not ansible_check_mode
+
+- name: Read the adopted pool root without mounting it
+  ansible.builtin.command:
+    argv: [zfs, get, -H, -o, value, mountpoint, "{{ storage_adopt_pool }}"]
+  register: storage_adopt_mountpoint
+  changed_when: false
+  when:
+    - not ansible_check_mode
+    - storage_pools[storage_adopt_pool].mountpoint is defined
+
+- name: Verify the import root preserves the approved client paths
+  ansible.builtin.assert:
+    that: storage_adopt_mountpoint.stdout | trim == storage_pools[storage_adopt_pool].mountpoint
+  when:
+    - not ansible_check_mode
+    - storage_pools[storage_adopt_pool].mountpoint is defined
+
+- name: Inspect dataset mount state without mounting anything
+  ansible.builtin.command:
+    argv: [zfs, get, -Hr, -o, value, mounted, "{{ storage_adopt_pool }}"]
+  register: storage_adopt_mounts
+  changed_when: false
+  when: not ansible_check_mode
+
+- name: Verify all imported datasets remain unmounted
+  ansible.builtin.assert:
+    that: "'yes' not in storage_adopt_mounts.stdout_lines"
+  when: not ansible_check_mode
+
+- name: Explain required write-enable review
+  ansible.builtin.debug:
+    msg: >-
+      Pool imported read-only and unmounted. Inspect status/features/encryption/dataset metadata
+      and verify backups/restoration before cleanly exporting and deliberately importing read-write.
+      Stale-host ownership may only be overridden explicitly after verifying the old host is offline.
+      This operation never rewinds, upgrades features, mounts datasets or starts services.
+  when: not ansible_check_mode

@@ -339,6 +339,46 @@ remain because these operations can affect data. Inspect their required
 variables before running them; preserve a bootable rollback disk and console
 access. Never force an import while another host can access the pool.
 
+### Storage host OS reinstall
+
+The owner-facing process is three steps: export the pool, reinstall Debian,
+then apply Ansible. Replace `NAS_HOST` with the exact inventory hostname.
+
+1. **Export the pool and shut down.** Backups are assumed verified and clients
+   disconnected. The play waits for known storage jobs, stops writers, cleanly
+   exports the inventory-selected pool, and powers off; do not force an export
+   if it reports a blocker.
+
+   ```sh
+   ansible-playbook playbooks/operations/storage/export-pool.yml --limit NAS_HOST
+   ```
+
+2. **Reinstall Debian.** Install with ext4 on the OS disk only. Leave every
+   pool device and dataset untouched. Configure network access as usual.
+
+3. **Apply the Ansible configuration.** Once the host is reachable, this
+   operation first creates the existing `applier` account through the
+   installer login, using the one public key offered by your unlocked 1Password
+   SSH agent. It closes that connection, reconnects as `applier`, changes
+   the inventory SSH administrator from installer UID/GID 1000 to its
+   inventory identity, then reapplies the standard applier SSH key. Close any
+   separate administrator session first. If only the administrator's systemd
+   user manager remains, recovery terminates that session; it refuses to
+   proceed if a shell or other administrator process is still running. It then
+   reconnects as the administrator, imports the pool identified by inventory,
+   and runs normal `site.yml` provisioning. It restores cache-only pool import
+   on future boots; recovery does not maintain a second copy of the site's role
+   list.
+
+   ```sh
+   ansible-playbook playbooks/operations/storage/recover-reinstall.yml --limit NAS_HOST
+   ```
+
+Pool identity comes from the host's storage inventory; no GUID needs to be
+copied into the command. The recovery operation sets up
+`zfs-import-cache.service`; scan-based imports remain masked. Backups are
+assumed, and recovery is run only after the old host is offline.
+
 `convert-permissions.yml` requires stopped writers, a verified off-host metadata
 archive and a selected `permission_roots` list or exhaustive
 `permission_manifest`. Native recursive tools do not follow symlinks or cross

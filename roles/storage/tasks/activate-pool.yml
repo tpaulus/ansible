@@ -1,0 +1,107 @@
+---
+- name: Detect the protected source appliance
+  ansible.builtin.stat:
+    path: /usr/bin/midclt
+  register: storage_activate_appliance
+
+- name: Require one approved Debian target and confirmed write-enable prerequisites
+  ansible.builtin.assert:
+    that:
+      - ansible_limit | default('') | length > 0
+      - ansible_limit != 'all'
+      - ansible_play_hosts_all | length == 1
+      - ansible_facts['distribution'] == 'Debian'
+      - not storage_activate_appliance.stat.exists
+      - storage_activate_confirm | default('') == 'ACTIVATE ' ~ inventory_hostname
+      - storage_activate_backups_verified | default(false) | bool
+      - storage_activate_previous_host_offline | default(false) | bool
+      - storage_activate_pool | default('') in storage_pools
+      - storage_activate_guid | default('') | string == storage_pools[storage_activate_pool | default(storage_pools.keys() | first)].guid | string
+      - not ansible_check_mode
+    fail_msg: Require ACTIVATE <host>, the approved pool/GUID, verified backups and the previous host offline.
+
+- name: Read currently imported pools
+  ansible.builtin.command:
+    argv: [zpool, list, -H, -o, name]
+  register: storage_activate_pools
+  changed_when: false
+
+- name: Read inspected pool identity and protection
+  ansible.builtin.command:
+    argv: [zpool, get, -H, -o, "property,value", "guid,readonly,cachefile,altroot", "{{ storage_activate_pool }}"]
+  register: storage_activate_before
+  changed_when: false
+
+- name: Require the approved unmounted read-only inspection state
+  ansible.builtin.assert:
+    that:
+      - storage_activate_pools.stdout_lines == [storage_activate_pool]
+      - storage_activate_properties.guid == storage_activate_guid | string
+      - storage_activate_properties.readonly == 'on'
+      - storage_activate_properties.cachefile == 'none'
+      - storage_activate_properties.altroot == storage_pools[storage_activate_pool].altroot | default('-')
+  vars:
+    storage_activate_properties: "{{ dict(storage_activate_before.stdout_lines | map('split')) }}"
+
+- name: Read all inspected dataset mount states
+  ansible.builtin.command:
+    argv: [zfs, get, -Hr, -o, value, mounted, "{{ storage_activate_pool }}"]
+  register: storage_activate_mounts
+  changed_when: false
+
+- name: Refuse to export a mounted inspection pool
+  ansible.builtin.assert:
+    that: "'yes' not in storage_activate_mounts.stdout_lines"
+
+- name: Record feature states before enabling writes
+  ansible.builtin.command:
+    argv: [zpool, get, -H, -o, "property,value", all, "{{ storage_activate_pool }}"]
+  register: storage_activate_features_before
+  changed_when: false
+
+- name: Cleanly release only the inspected read-only pool
+  ansible.builtin.command:
+    argv: [zpool, export, "{{ storage_activate_pool }}"]
+  changed_when: true
+
+- name: Reimport only its approved GUID unmounted and writable
+  ansible.builtin.command:
+    argv: >-
+      {{ ['zpool', 'import', '-N', '-o', 'readonly=off', '-o', 'cachefile=none']
+         + (['-R', storage_pools[storage_activate_pool].altroot]
+            if storage_pools[storage_activate_pool].altroot | default('') | length > 0 else [])
+         + [storage_activate_guid | string] }}
+  changed_when: true
+
+- name: Read reimported pool properties and features
+  ansible.builtin.command:
+    argv: [zpool, get, -H, -o, "property,value", all, "{{ storage_activate_pool }}"]
+  register: storage_activate_after
+  changed_when: false
+
+- name: Verify identity and that no disabled feature became enabled
+  ansible.builtin.assert:
+    that:
+      - storage_activate_properties.guid == storage_activate_guid | string
+      - storage_activate_properties.readonly == 'off'
+      - storage_activate_properties.cachefile == 'none'
+      - storage_activate_properties.altroot == storage_pools[storage_activate_pool].altroot | default('-')
+      - >-
+        storage_activate_features_before.stdout_lines | select('match', '^feature@')
+        | select('search', '\\sdisabled$') | list
+        == storage_activate_after.stdout_lines | select('match', '^feature@')
+        | select('search', '\\sdisabled$') | list
+  vars:
+    storage_activate_properties: "{{ dict(storage_activate_after.stdout_lines | map('split')) }}"
+
+- name: Mount the inspected auto-mount filesystems without importing other pools
+  ansible.builtin.command:
+    argv: [zfs, mount, -a]
+  changed_when: true
+
+- name: Verify the approved mounted pool root
+  ansible.builtin.command:
+    argv: [findmnt, --noheadings, --output, SOURCE, --mountpoint, "{{ storage_pools[storage_activate_pool].mountpoint }}"]
+  register: storage_activate_root
+  changed_when: false
+  failed_when: storage_activate_root.rc != 0 or storage_activate_root.stdout | trim != storage_activate_pool

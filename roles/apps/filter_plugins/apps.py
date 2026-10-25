@@ -51,8 +51,6 @@ def snapshot_config(app, snapshots, mount_guard, retention_days):
         if app["name"] == "webdav":
             files.extend([f"{home}/.config/apps/httpd.conf",
                           f"{home}/.config/apps/webdavhtbasic"])
-        if app["name"] == "prometheus":
-            files.append(f"{home}/.source-configuration/prometheus-source.tar")
         return {
             "name": app["name"], "identity": app["identity"], "image": app["image"],
             "snapshot": target, "sources": sources, "private_files": files,
