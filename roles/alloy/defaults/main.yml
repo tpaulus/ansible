@@ -1,9 +1,6 @@
 ---
 # Public NAS policy variables are shared with the canonical storage inventory.
 alloy_version: "1.20.1"
-alloy_package_revision: "1"
-alloy_repository_key_sha256: 3d4029689bc7e4444ec00abafa07f21e9c812b41f1123ab5bbe6f8c3e3f7ff8c
-alloy_repository_key_fingerprint: B53AE77BADB630A683046005963FA27710458545
 
 # No cluster-local or unprotected fallback: the private route must be deployed first.
 alloy_loki_url: ""

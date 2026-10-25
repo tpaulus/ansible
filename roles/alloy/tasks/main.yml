@@ -6,11 +6,12 @@
       - alloy_metrics_sources | length > 0
     fail_msg: Configure the HTTPS Loki OTLP endpoint and allowed monitoring networks.
 
-- name: Install signed repository and journal prerequisites
+- name: Install collector firewall and journal prerequisites
   ansible.builtin.apt:
     name:
       - ca-certificates
       - nftables
+      - acl
     state: present
     update_cache: true
     cache_valid_time: 3600
@@ -23,84 +24,8 @@
     group: root
     mode: "0755"
   loop:
-    - /etc/apt/keyrings
     - /etc/alloy
     - /etc/systemd/journald.conf.d
-    - /etc/systemd/system/alloy.service.d
-
-- name: Download verified Grafana repository signing key
-  ansible.builtin.get_url:
-    url: https://apt.grafana.com/gpg.key
-    dest: /etc/apt/keyrings/grafana-alloy.asc
-    checksum: "sha256:{{ alloy_repository_key_sha256 }}"
-    owner: root
-    group: root
-    mode: "0644"
-
-- name: Scope repository trust to the Grafana signing key
-  ansible.builtin.copy:
-    dest: /etc/apt/sources.list.d/grafana-alloy.sources
-    owner: root
-    group: root
-    mode: "0644"
-    content: |
-      Types: deb
-      URIs: https://apt.grafana.com
-      Suites: stable
-      Components: main
-      Signed-By: /etc/apt/keyrings/grafana-alloy.asc {{ alloy_repository_key_fingerprint }}
-  register: alloy_repository
-
-- name: Prevent package scripts from restarting before configuration validation
-  ansible.builtin.copy:
-    dest: /etc/default/alloy
-    owner: root
-    group: root
-    mode: "0644"
-    content: |
-      CONFIG_FILE="/etc/alloy/config.alloy"
-      CUSTOM_ARGS=""
-      RESTART_ON_UPGRADE=false
-
-- name: Install pinned signature and repository-checksum verified Alloy package
-  ansible.builtin.apt:
-    name: "alloy={{ alloy_version }}-{{ alloy_package_revision }}"
-    state: present
-    update_cache: "{{ alloy_repository.changed }}"
-    allow_downgrade: true
-    allow_change_held_packages: true
-    policy_rc_d: 101
-  notify: Restart NAS Alloy
-
-- name: Prevent the collector from changing its own configuration directory
-  ansible.builtin.file:
-    path: /etc/alloy
-    state: directory
-    owner: root
-    group: alloy
-    mode: "0750"
-
-- name: Keep unattended upgrades from changing the collector pin
-  ansible.builtin.dpkg_selections:
-    name: alloy
-    selection: hold
-
-- name: Grant access to system and all persistent per-user journals
-  ansible.builtin.user:
-    name: alloy
-    groups:
-      - adm
-      - systemd-journal
-    append: true
-  notify: Restart NAS Alloy
-
-- name: Persist collector cursors and OTLP queue on the boot filesystem
-  ansible.builtin.file:
-    path: /var/lib/alloy
-    state: directory
-    owner: alloy
-    group: alloy
-    mode: "0750"
 
 - name: Configure bounded persistent system and user journals
   ansible.builtin.include_tasks: journal.yml
@@ -115,7 +40,7 @@
     validate: /usr/sbin/nft --check --file %s
   notify: Restart NAS Alloy firewall
 
-- name: Install collector management firewall service
+- name: Install and start collector management firewall service
   ansible.builtin.template:
     src: alloy-metrics-firewall.service.j2
     dest: /etc/systemd/system/alloy-metrics-firewall.service
@@ -124,14 +49,12 @@
     mode: "0644"
   notify: Restart NAS Alloy firewall
 
-- name: Configure collector runtime and durability
-  ansible.builtin.template:
-    src: alloy.service.conf.j2
-    dest: /etc/systemd/system/alloy.service.d/60-ansible.conf
-    owner: root
-    group: root
-    mode: "0644"
-  notify: Restart NAS Alloy
+- name: Start collector management firewall before Alloy
+  ansible.builtin.systemd_service:
+    name: alloy-metrics-firewall.service
+    daemon_reload: true
+    enabled: true
+    state: started
 
 - name: Install a journal heartbeat independent of NAS applications
   ansible.builtin.template:
@@ -145,24 +68,35 @@
     - alloy-heartbeat.timer
   notify: Restart NAS Alloy heartbeat
 
-- name: Validate configuration before replacing the running collector configuration
-  ansible.builtin.template:
-    src: config.alloy.j2
-    dest: /etc/alloy/config.alloy
-    owner: root
-    group: alloy
-    mode: "0640"
-    validate: /usr/bin/alloy validate --stability.level=public-preview %s
-  notify: Restart NAS Alloy
+- name: Render NAS Alloy configuration for Grafana's role
+  ansible.builtin.set_fact:
+    alloy_nas_config: "{{ lookup('ansible.builtin.template', 'config.alloy.j2') }}"
 
-- name: Enable native collector management firewall
-  ansible.builtin.systemd_service:
-    name: alloy-metrics-firewall.service
-    daemon_reload: true
-    enabled: true
-    state: started
+- name: Install and configure Grafana Alloy
+  ansible.builtin.include_role:
+    name: grafana.grafana.alloy
+  vars:
+    alloy_config: "{{ alloy_nas_config }}"
+    alloy_env_file_vars:
+      CUSTOM_ARGS: >-
+        --storage.path=/var/lib/alloy
+        --stability.level=public-preview
+        --server.http.listen-addr 0.0.0.0:{{ alloy_listen_port }}
+        --server.http.enable-pprof=false
+        --disable-reporting
+      RESTART_ON_UPGRADE: "false"
+    __alloy_server_http_listen_address: 127.0.0.1
+    __alloy_server_http_listen_port: "{{ alloy_listen_port }}"
+    alloy_systemd_override: |
+      [Unit]
+      Requires=alloy-metrics-firewall.service
+      After=alloy-metrics-firewall.service systemd-journald.service
+    alloy_readiness_check_use_proxy: false
+    alloy_user_groups:
+      - adm
+      - systemd-journal
 
-- name: Apply validated journal and collector changes
+- name: Apply journal and collector changes
   ansible.builtin.meta: flush_handlers
 
 - name: Flush early-boot runtime journal entries into persistent storage
@@ -177,12 +111,6 @@
   changed_when: false
   failed_when: alloy_journal_access.rc != 0 or alloy_journal_access.stdout | trim | length == 0
   no_log: true
-
-- name: Enable native NAS collector independently of data pools
-  ansible.builtin.systemd_service:
-    name: alloy.service
-    enabled: true
-    state: started
 
 - name: Enable native journal heartbeat independently of data pools
   ansible.builtin.systemd_service:

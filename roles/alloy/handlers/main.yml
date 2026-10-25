@@ -16,12 +16,6 @@
     daemon_reload: true
     state: restarted
 
-- name: Restart NAS Alloy
-  ansible.builtin.systemd_service:
-    name: alloy.service
-    daemon_reload: true
-    state: restarted
-
 - name: Restart NAS Alloy heartbeat
   ansible.builtin.systemd_service:
     name: alloy-heartbeat.timer
