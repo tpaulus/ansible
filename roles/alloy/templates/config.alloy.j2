@@ -106,6 +106,17 @@ otelcol.processor.attributes "transport_hints" {
 otelcol.processor.groupbyattrs "identity" {
   keys = ["node_name", "job", "app", "container", "system_unit", "user_unit", "priority"]
   output {
+    logs = [otelcol.processor.batch.delivery.input]
+  }
+}
+
+// Batch briefly to reduce persistent-queue fsync and HTTP request overhead.
+// A crash can lose logs waiting here for at most the timeout.
+otelcol.processor.batch "delivery" {
+  timeout             = "1s"
+  send_batch_size     = 512
+  send_batch_max_size = 512
+  output {
     logs = [otelcol.exporter.otlphttp.cluster.input]
   }
 }

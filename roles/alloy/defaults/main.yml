@@ -13,8 +13,9 @@ alloy_journal_keep_free: 1G
 alloy_journal_retention: 2day
 alloy_journal_max_age: 24h
 # Use Alloy's public-preview file storage, not loki.write's broken WAL replay.
-# The persistent queue fsyncs before enqueue returns; no volatile batch
-# processor sits before it. Capacity bounds serialized pending payload, not
+# The file-backed queue fsyncs before its enqueue returns. A bounded one-second
+# in-memory batch before it reduces queue and request overhead but can lose
+# buffered logs on a crash. Capacity bounds serialized pending payload, not
 # bbolt's total allocated file size; compaction reclaims its high-water mark.
 # Retry exhaustion (2h per processing attempt), full/failed storage, journal
 # vacuuming and permanent Loki rejection remain bounded-loss conditions.
