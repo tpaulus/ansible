@@ -3,74 +3,7 @@
   hosts: device_roles_storage:device_roles_compute
   become: true
   gather_facts: true
-  vars:
-    applier_id: 5000
-    applier_sudoers_dir: "{{ '/usr/local/etc/sudoers.d' if ansible_facts['os_family'] == 'FreeBSD' else '/etc/sudoers.d' }}"
-    applier_visudo: "{{ '/usr/local/sbin/visudo' if ansible_facts['os_family'] == 'FreeBSD' else '/usr/sbin/visudo' }}"
   tasks:
-    - name: Require a supported sudoers layout
-      ansible.builtin.assert:
-        that: ansible_facts['os_family'] in ['Debian', 'FreeBSD']
-        fail_msg: "The applier playbook supports Debian and FreeBSD hosts only."
-
-    - name: Read existing account identities
-      ansible.builtin.getent:
-        database: "{{ item }}"
-      loop: [passwd, group]
-
-    - name: Refuse conflicting applier group name or GID
-      ansible.builtin.assert:
-        that:
-          - "'applier' not in ansible_facts.getent_group or ansible_facts.getent_group['applier'][1] | int == applier_id | int"
-          - >-
-            ansible_facts.getent_group | dict2items | rejectattr('key', 'equalto', 'applier')
-            | selectattr('value.1', 'equalto', applier_id | string) | list | length == 0
-        fail_msg: Resolve the applier group name/GID conflict before running this playbook.
-
-    - name: Refuse conflicting applier user name or UID
-      ansible.builtin.assert:
-        that:
-          - "'applier' not in ansible_facts.getent_passwd or ansible_facts.getent_passwd['applier'][1] | int == applier_id | int"
-          - >-
-            ansible_facts.getent_passwd | dict2items | rejectattr('key', 'equalto', 'applier')
-            | selectattr('value.1', 'equalto', applier_id | string) | list | length == 0
-        fail_msg: Resolve the applier user name/UID conflict before running this playbook.
-
-    - name: Ensure the applier primary group exists
-      ansible.builtin.group:
+    - name: Configure the applier account
+      ansible.builtin.import_role:
         name: applier
-        gid: "{{ applier_id }}"
-        state: present
-
-    - name: Ensure the applier account exists
-      ansible.builtin.user:
-        name: applier
-        uid: "{{ applier_id }}"
-        group: applier
-        groups: "{{ ['ssh'] if 'ssh' in ansible_facts.getent_group else omit }}"
-        append: "{{ 'ssh' in ansible_facts.getent_group or inventory_hostname | lower == 'beaconhill' }}"
-        create_home: true
-        shell: /bin/bash
-        password_lock: true
-        state: present
-
-    - name: Trust the applier SSH public key
-      ansible.posix.authorized_key:
-        user: applier
-        key: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAICSX4nUyLrjf4JsG8RQrjDNdjODFsg2wHvjTrqbLpv6q"
-        state: present
-
-    - name: Ensure the sudoers drop-in directory exists
-      ansible.builtin.file:
-        path: "{{ applier_sudoers_dir }}"
-        state: directory
-        owner: root
-        mode: "0755"
-
-    - name: Grant applier passwordless sudo
-      ansible.builtin.copy:
-        dest: "{{ applier_sudoers_dir }}/applier"
-        content: "applier ALL=(ALL) NOPASSWD: ALL\n"
-        owner: root
-        mode: "0440"
-        validate: "{{ applier_visudo }} -cf %s"

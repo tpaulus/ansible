@@ -1,0 +1,5 @@
+---
+applier_id: 5000
+applier_sudoers_dir: "{{ '/usr/local/etc/sudoers.d' if ansible_facts['os_family'] == 'FreeBSD' else '/etc/sudoers.d' }}"
+applier_visudo: "{{ '/usr/local/sbin/visudo' if ansible_facts['os_family'] == 'FreeBSD' else '/usr/sbin/visudo' }}"
+applier_ssh_authorized_key: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAICSX4nUyLrjf4JsG8RQrjDNdjODFsg2wHvjTrqbLpv6q"
