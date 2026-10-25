@@ -154,14 +154,14 @@ the central alert rule together; this repository does not manage central alerts.
 ### Ansible run monitoring
 
 The final play of `site.yml` runs the `last_run_metrics` role on every inventory
-host. It atomically writes `ansible_last_run_timestamp_seconds`, the
-controller's Unix time at completion, to `ansible_last_run.prom` in the shared
-node-exporter textfile directory. The play is tagged `always`, so tag-limited
-`site.yml` runs count, but only hosts that completed every earlier play are
-stamped. Check mode, failed or unreachable hosts and the focused
-`playbooks/provision/` entry points or other playbooks leave the previous value
-in place. Firewall hosts are stamped too, but only alert if their node exporter
-reads the same textfile directory.
+host, but publishes the metric only when a Node Exporter service is running. It
+atomically writes `ansible_last_run_timestamp_seconds`, the controller's Unix
+time at completion, to `ansible_last_run.prom` in the shared node-exporter
+textfile directory. The play is tagged `always`, so tag-limited `site.yml` runs
+count, but only hosts that completed every earlier play are stamped. Check mode,
+hosts without a running Node Exporter, failed or unreachable hosts, and the
+focused `playbooks/provision/` entry points or other playbooks leave the
+previous value in place.
 
 `AnsibleRunStale` in `tpaulus/kube-config`'s `_alerts/ansible-runner.yaml`
 fires when a host's timestamp is more than seven days old. A host that has

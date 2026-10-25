@@ -1,20 +1,38 @@
 ---
-- name: Create Ansible run metric directory
-  ansible.builtin.file:
-    path: "{{ last_run_metrics_dir }}"
-    state: directory
-    mode: "0755"
+- name: Read service facts
+  ansible.builtin.service_facts:
 
-# The copy module replaces the textfile atomically. The timestamp changes on
-# every run, so it is not reported as a configuration change.
-- name: Publish last Ansible run timestamp
-  ansible.builtin.copy:
-    dest: "{{ last_run_metrics_dir }}/ansible_last_run.prom"
-    owner: "0"
-    group: "0"
-    mode: "0644"
-    content: |
-      # HELP ansible_last_run_timestamp_seconds Unix time of the last successful Ansible provisioning run against this host.
-      # TYPE ansible_last_run_timestamp_seconds gauge
-      ansible_last_run_timestamp_seconds {{ now().timestamp() | int }}
-  changed_when: false
+- name: Determine whether Node Exporter is running
+  ansible.builtin.set_fact:
+    last_run_metrics_node_exporter_running: >-
+      {{
+        ansible_facts['services']
+        | dict2items
+        | selectattr('key', 'match', '^(?:.*[-_])?node[_-]exporter(?:\.service)?$')
+        | selectattr('value.state', 'equalto', 'running')
+        | list
+        | length > 0
+      }}
+
+- name: Publish last Ansible run metric when Node Exporter is running
+  when: last_run_metrics_node_exporter_running
+  block:
+    - name: Create Ansible run metric directory
+      ansible.builtin.file:
+        path: "{{ last_run_metrics_dir }}"
+        state: directory
+        mode: "0755"
+
+    # The copy module replaces the textfile atomically. The timestamp changes
+    # on every run, so it is not reported as a configuration change.
+    - name: Publish last Ansible run timestamp
+      ansible.builtin.copy:
+        dest: "{{ last_run_metrics_dir }}/ansible_last_run.prom"
+        owner: "0"
+        group: "0"
+        mode: "0644"
+        content: |
+          # HELP ansible_last_run_timestamp_seconds Unix time of the last successful Ansible provisioning run against this host.
+          # TYPE ansible_last_run_timestamp_seconds gauge
+          ansible_last_run_timestamp_seconds {{ now().timestamp() | int }}
+      changed_when: false
