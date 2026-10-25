@@ -1,0 +1,14 @@
+---
+- name: Ensure mount guard directory
+  ansible.builtin.file:
+    path: "{{ storage_mount_guard | dirname }}"
+    state: directory
+    mode: "0755"
+
+- name: Install runtime ZFS mount guard
+  ansible.builtin.copy:
+    src: mount-guard
+    dest: "{{ storage_mount_guard }}"
+    owner: root
+    group: root
+    mode: "0755"

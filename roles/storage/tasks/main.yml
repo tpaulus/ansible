@@ -2,24 +2,15 @@
 - name: Install Debian storage prerequisites
   ansible.builtin.include_tasks: packages.yml
 
-- name: Install shared mount guard directory
-  ansible.builtin.file:
-    path: /usr/local/libexec
-    state: directory
-    mode: "0755"
-
-- name: Install runtime ZFS mount guard
-  ansible.builtin.copy:
-    src: mount-guard
-    dest: /usr/local/libexec/mount-guard
-    mode: "0755"
+- name: Install ZFS mount validation helper
+  ansible.builtin.include_tasks: mount-guard.yml
 
 - name: Check approved pools
   ansible.builtin.import_tasks: identity.yml
 
 - name: Check pool backing mounts
   ansible.builtin.command:
-    argv: [/usr/local/libexec/mount-guard, "{{ item.value.mountpoint }}", "{{ item.key }}"]
+    argv: ["{{ storage_mount_guard }}", "{{ item.value.mountpoint }}", "{{ item.key }}"]
   loop: "{{ storage_pools | dict2items }}"
   changed_when: false
   when: not ansible_check_mode
