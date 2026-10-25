@@ -496,7 +496,10 @@ the NAS; do not interpret successful scheduling as a completed disk test.
 SMART/scrub collectors publish atomic node-exporter
 textfiles, retaining successful scrub history across later scans. Disk policy
 uses by-id paths and serial numbers, not `/dev/sdX`.
-Alloy uses bounded persistent journals and a boot-filesystem OTLP queue.
+Alloy uses bounded persistent journals and a boot-filesystem OTLP queue. After
+deploying to the NAS, verify `systemctl is-active alloy.service`, run
+`alloy validate --stability.level=public-preview /etc/alloy/config.alloy`, and
+confirm only the configured Prometheus sources can reach Alloy's `:12345` endpoint.
 Central alerts remain in the separate K3s repository.
 
 ## Maintenance and decommissioning
