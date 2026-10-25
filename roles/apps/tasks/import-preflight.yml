@@ -1,16 +1,10 @@
 ---
-- name: Detect the protected source appliance before any import preparation
-  ansible.builtin.stat:
-    path: /usr/bin/midclt
-  register: apps_source_appliance
-
 - name: Require a narrowly limited and explicitly approved offline import
   ansible.builtin.assert:
     that:
       - apps_enabled | bool
       - ansible_facts['distribution'] == 'Debian'
       - ansible_facts['distribution_major_version'] | int >= 13
-      - not apps_source_appliance.stat.exists
       - ansible_limit | default('') | length > 0
       - ansible_limit != 'all'
       - ansible_play_hosts_all | length == 1

@@ -37,7 +37,6 @@ apps_snapshots:
 # Reviewed against the source passwd/group and subid tables on 2026-10-17.
 # WebDAV retains 666 to preserve Svalbard ownership. New runtime clones map 568 to
 # distinct Jellyfin/Prometheus host IDs; their container-visible identity stays 568.
-# Do not carry TrueNAS's root subordinate maps (including 0:568:568) to Debian.
 apps_accounts:
   - {name: nas-jellyfin, uid: 3100, gid: 3100, home: /var/lib/nas-jellyfin, subuid_start: 200000, subgid_start: 200000, subid_count: 65536}
   - {name: nas-prometheus, uid: 3101, gid: 3101, home: /var/lib/nas-prometheus, subuid_start: 300000, subgid_start: 300000, subid_count: 65536}

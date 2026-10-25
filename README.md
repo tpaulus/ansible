@@ -172,8 +172,8 @@ that `/var/lib/node_exporter/ansible_last_run.prom` exists and that
 ## Storage
 
 Debian 13 amd64 runs OpenZFS, Samba/NFS, smartd/Sanoid, rootless Podman
-applications and native Alloy. Never provision the old TrueNAS appliance
-as a Debian host. OS installation and pool adoption are separate operations.
+applications and native Alloy. OS installation and pool adoption are separate
+operations.
 
 The pinned `alvistack.podman` role installs Podman 6.1.3 from its signed
 Debian 13 repository; the rootful API remains masked. Our local role retains
@@ -211,7 +211,7 @@ or the explicit string `"none"` to remove a cap. Omit `quota` to preserve the
 existing ZFS setting; no default cap or automatic quota removal is applied.
 `refquota` is supported in the same property maps and limits only the dataset's
 referenced data, excluding snapshots and descendants. Preserve that distinction
-when importing TrueNAS limits; do not translate a `refquota` into a `quota`.
+when importing existing limits; do not translate a `refquota` into a `quota`.
 Private children default to `kind: dataset`; `kind: directory` cannot declare
 ZFS properties because it shares its parent's filesystem. Child quotas are
 independent declarations, not copies of the parent's quota; a parent quota
@@ -319,19 +319,12 @@ Update private extra-vars files and wrappers to use the new variable/tag names.
 
 ```sh
 ansible-playbook playbooks/operations/storage/validate-context.yml --limit STORAGE
-ansible-playbook playbooks/operations/storage/discover.yml --limit STORAGE \
-  -e discovery_output=/absolute/private/path/discovery.json
 ansible-playbook playbooks/operations/storage/reset-smb-passwords.yml --limit STORAGE \
   -e password_confirm=STORAGE
 ```
 
-Discovery is read-only and omits secret environment values; it is not a backup.
-Its recursive `dataset_properties` evidence includes existing `quota` and `refquota` values
-and their ZFS sources for all filesystems, including private child datasets.
-Numeric values are reported in bytes (`zfs get -p`); review existing settings
-before declaring caps in NetBox. Discovery does not populate or modify NetBox.
-Edit the NetBox share context directly using the schema. Keep discovery output,
-configuration archives, credentials and application backups outside Git.
+Edit the NetBox share context directly using the schema. Keep configuration
+archives, credentials and application backups outside Git.
 
 `prepare-host.yml`, `adopt-pool.yml` and `activate-pool.yml` handle OS cutover
 and deliberate pool imports. Their explicit host/pool/backup confirmations
@@ -403,8 +396,8 @@ sudo appctl logs webdav --follow
 normal application runs never import databases. It requires
 `apps_import_confirm: "IMPORT HOSTNAME"`, stopped-source/verified-backup
 confirmations, and either a staging root/dataset or explicit clone mappings.
-Never use the TrueNAS Docker graph as runtime storage. Restore state before
-starting apps and preserve existing library paths and numeric ownership.
+Restore state before starting apps and preserve existing library paths and
+numeric ownership.
 SMB password resets do not rotate WebDAV credentials.
 
 Prometheus's original imported configuration is archived once and included
@@ -427,7 +420,7 @@ limits on the active clone as well as preserving the retained source's limits.
 it, and stages a completed generation for Restic. Jellyfin configuration/state
 and Prometheus configuration are included; Prometheus metric data is not.
 WebDAV's private state/configuration is no longer included in Restic backups;
-Svalbard documents are backed up separately from an offsite appliance.
+Svalbard documents are backed up separately.
 
 Local app snapshots and staged generations expire after seven days
 (`apps_snapshot_retention_days`). Cleanup runs before snapshots and independently

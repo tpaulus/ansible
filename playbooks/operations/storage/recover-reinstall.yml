@@ -8,11 +8,6 @@
   gather_facts: true
   serial: 1
   pre_tasks:
-    - name: Detect the protected source appliance
-      ansible.builtin.stat:
-        path: /usr/bin/midclt
-      register: recover_appliance
-
     - name: Select the pool configured for this host
       ansible.builtin.set_fact:
         recover_pool_name: "{{ recover_pool | default(storage_pools.keys() | first) }}"
@@ -24,7 +19,6 @@
           - ansible_limit != 'all'
           - ansible_play_hosts_all | length == 1
           - ansible_facts['distribution'] == 'Debian'
-          - not recover_appliance.stat.exists
           - recover_pool_name in storage_pools
           - not ansible_check_mode
         fail_msg: >-

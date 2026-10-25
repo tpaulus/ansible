@@ -1,19 +1,4 @@
 ---
-- name: Protect existing storage appliances from Debian provisioning
-  hosts: device_roles_storage
-  become: true
-  gather_facts: false
-  tags: [base, monitoring, nut, unattended_upgrades]
-  tasks:
-    - name: Detect the TrueNAS middleware
-      ansible.builtin.stat:
-        path: /usr/bin/midclt
-      register: common_appliance
-    - name: Require the separately authorized Debian installation first
-      ansible.builtin.assert:
-        that: not common_appliance.stat.exists
-        fail_msg: TrueNAS is still installed; do not run Debian provisioning against the appliance.
-
 - name: Configure base system
   hosts: all
   become: true

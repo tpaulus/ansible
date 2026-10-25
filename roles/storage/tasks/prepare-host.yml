@@ -1,9 +1,4 @@
 ---
-- name: Detect the protected source appliance
-  ansible.builtin.stat:
-    path: /usr/bin/midclt
-  register: storage_prepare_appliance
-
 - name: Require one confirmed Debian preparation target
   ansible.builtin.assert:
     that:
@@ -13,7 +8,6 @@
       - storage_prepare_confirm | default('') == inventory_hostname
       - ansible_facts['distribution'] == 'Debian'
       - ansible_facts['architecture'] in ['x86_64', 'aarch64']
-      - not storage_prepare_appliance.stat.exists
       - not ansible_check_mode
 
 - name: Read kernel pool inventory before changing import services

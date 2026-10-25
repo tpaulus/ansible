@@ -7,11 +7,6 @@
   vars:
     prepare_pool_name: "{{ prepare_pool | default(storage_pools.keys() | first) }}"
   pre_tasks:
-    - name: Detect the protected source appliance
-      ansible.builtin.stat:
-        path: /usr/bin/midclt
-      register: prepare_appliance
-
     - name: Require one confirmed Debian storage target
       ansible.builtin.assert:
         that:
@@ -20,7 +15,6 @@
           - ansible_play_hosts_all | length == 1
           - prepare_confirm | default('') == inventory_hostname
           - ansible_facts['distribution'] == 'Debian'
-          - not prepare_appliance.stat.exists
           - prepare_pool_name in storage_pools
           - prepare_guid | default(storage_pools[prepare_pool_name].guid) | string == storage_pools[prepare_pool_name].guid | string
           - not ansible_check_mode

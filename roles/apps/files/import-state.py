@@ -1,5 +1,5 @@
 #!/usr/bin/python3
-"""Import an offline staged copy, never a running TrueNAS Docker graph."""
+"""Import an offline staged copy."""
 import json
 import os
 import subprocess
@@ -33,8 +33,8 @@ if __name__ == "__main__":
         config = json.load(sys.stdin)
         root = Path(config["source_root"])
         if (not root.is_absolute() or root.is_symlink()
-                or not root.is_dir() or ".ix-apps" in root.parts):
-            raise ValueError("Use a reviewed offline staging root, never TrueNAS's Docker graph")
+                or not root.is_dir()):
+            raise ValueError("Use a reviewed offline staging root")
         for app in config["apps"]:
             for mount in app["mounts"]:
                 if not mount.get("require_import"):

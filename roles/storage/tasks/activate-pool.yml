@@ -1,9 +1,4 @@
 ---
-- name: Detect the protected source appliance
-  ansible.builtin.stat:
-    path: /usr/bin/midclt
-  register: storage_activate_appliance
-
 - name: Require one approved Debian target and confirmed write-enable prerequisites
   ansible.builtin.assert:
     that:
@@ -11,7 +6,6 @@
       - ansible_limit != 'all'
       - ansible_play_hosts_all | length == 1
       - ansible_facts['distribution'] == 'Debian'
-      - not storage_activate_appliance.stat.exists
       - storage_activate_confirm | default('') == 'ACTIVATE ' ~ inventory_hostname
       - storage_activate_backups_verified | default(false) | bool
       - storage_activate_previous_host_offline | default(false) | bool

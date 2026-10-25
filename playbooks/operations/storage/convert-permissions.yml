@@ -4,11 +4,6 @@
   become: true
   serial: 1
   tasks:
-    - name: Detect the source appliance before changing metadata
-      ansible.builtin.stat:
-        path: /usr/bin/midclt
-      register: permission_appliance
-
     - name: Require a single confirmed target and tested recovery
       ansible.builtin.assert:
         that:
@@ -22,7 +17,6 @@
           - permission_metadata_sha256 | default('') is match('^[0-9a-f]{64}$')
           - (permission_manifest is defined) != (permission_roots is defined)
           - ansible_facts['distribution'] == 'Debian'
-          - not permission_appliance.stat.exists
         fail_msg: Require reviewed permission roots or manifest, stopped writers, an off-host metadata archive and rehearsed restoration.
 
     - name: Check the off-host ACL and xattr archive on the controller

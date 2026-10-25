@@ -25,16 +25,6 @@
           - not ansible_check_mode
         fail_msg: "Limit this operation to one freshly installed Debian NAS."
 
-    - name: Refuse to configure applier on the protected source appliance
-      ansible.builtin.stat:
-        path: /usr/bin/midclt
-      register: installer_admin_appliance
-
-    - name: Require a Debian target rather than the old storage appliance
-      ansible.builtin.assert:
-        that: not installer_admin_appliance.stat.exists
-        fail_msg: "The old storage appliance is still installed; refusing recovery."
-
     - name: Read the installed administrator user and group
       ansible.builtin.getent:
         database: "{{ item }}"

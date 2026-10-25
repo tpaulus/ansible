@@ -128,7 +128,6 @@ def native_find(root, action, directories_only=False):
 
 def apply_recursive(roots):
     for dataset in sorted({root["dataset"] for root in roots}):
-        # TrueNAS's restricted mode rejects chmod on retained nontrivial ACLs.
         subprocess.run(["zfs", "set", "acltype=off", "aclmode=passthrough", dataset], check=True)
     for root in roots:
         print(f"Applying native recursive permissions: {root['path']}", flush=True)
