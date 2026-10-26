@@ -257,6 +257,26 @@ When migrating, nest each old share under its dataset, remove its `dataset`
 reference, and omit only values matching the defaults above. Preserve explicit
 read-only policies, host restrictions, ownership and creation approvals.
 
+### File-service boot dependencies
+
+The shares role writes persistent `.mount` units for declared dataset roots,
+ordered after `zfs-mount.service`. ZFS still imports approved pools from its
+cache and mounts their datasets first. The unit files let systemd resolve
+SMB/NFS `BindsTo` dependencies before those mounts exist during cold boot;
+mount detection alone is too late to rescue discarded service start jobs.
+Directory-only private children use their backing dataset's mount unit.
+Startup guards still check every expected dataset, and file services remain
+bound to the dataset mounts so an unmount stops them.
+
+Provisioning runs `systemd-analyze verify --man=no smbd.service nfs-server.service`
+on the host before starting services. After applying, repeat that command and
+check `systemctl cat mnt-tank-Mel.mount` on WoodlandPark. During a maintenance
+window, reboot and confirm `systemctl is-active zfs-mount.service
+shares-ready.service smbd.service nfs-server.service` reports four active
+units without a manual start or another Ansible run. Confirm SMB client access
+and reads through an existing NFS client mount; `active (exited)` is normal for
+the oneshot NFS service.
+
 ### macOS SMB and Time Machine
 
 All shares load `fruit` and `streams_xattr` so the first connection always
@@ -397,6 +417,14 @@ starting Podman's short-lived user network wait before a slow boot has finished.
 This is boot-time interface readiness, not a guarantee that DNS or a remote
 service is reachable, and it does not stop containers on later network outages.
 
+Pasta-backed application Quadlets additionally run `podman-network-guard` before
+each start. It requires an IPv4 default route and a successful local route lookup
+with a source address; it sends no network traffic. An active online target can
+precede DHCP completion, allowing pasta to retain an IPv6-only namespace even
+after the host gains IPv4. A failed guard logs the missing prerequisite and the
+existing `Restart=on-failure` policy retries after 30 seconds instead. Host and
+bridge networking are unchanged; both address families remain enabled for pasta.
+
 Apply with `playbooks/provision/storage.yml --limit WoodlandPark --tags apps`
 (and the production Vault argument above). Existing user managers are not
 restarted just to apply boot ordering. On the host, check
@@ -409,6 +437,10 @@ without manual intervention, and verify Jellyfin playback and client discovery.
 Repeat with delayed network configuration to exercise the original boot race;
 check the wait-online service's journal for timeouts rather than treating an
 active target alone as proof of connectivity.
+Check `curl --fail http://127.0.0.1:30013/health` on the host as well as the
+container's health: an internal health check can pass with broken port forwarding.
+After a delayed-IPv4 boot, confirm the guard retries, Jellyfin eventually returns
+HTTP 200 through the published host port, and the container has IPv4 routes.
 
 ```sh
 appctl ls

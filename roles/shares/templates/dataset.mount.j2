@@ -1,0 +1,9 @@
+[Unit]
+Description=NAS dataset {{ item.item.dataset }}
+Requires=zfs-mount.service
+After=zfs-mount.service
+
+[Mount]
+What={{ item.item.dataset }}
+Where={{ item.item.path }}
+Type=zfs

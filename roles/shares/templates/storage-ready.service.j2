@@ -1,5 +1,7 @@
 [Unit]
 Description=Verify ZFS storage before NAS service pre-start exports
+Requires=zfs-mount.service
+After=zfs-mount.service
 RequiresMountsFor={% for mount in config_resolved.mounts %}"{{ mount.path }}" {% endfor %}
 
 [Service]

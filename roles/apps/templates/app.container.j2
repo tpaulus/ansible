@@ -47,6 +47,9 @@ HealthOnFailure=kill
 [Service]
 ExecStartPre={{ apps_mount_guard }}{% for mount in apps_app.mounts %} "{{ mount.path }}" "{{ mount.dataset }}"{% endfor %}
 
+{% if apps_app.network == 'pasta' or apps_app.network.startswith('pasta:') %}
+ExecStartPre=/usr/local/libexec/podman-network-guard
+{% endif %}
 Restart=on-failure
 RestartSec=30
 TimeoutStartSec=900

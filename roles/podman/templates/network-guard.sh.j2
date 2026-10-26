@@ -1,0 +1,20 @@
+#!/bin/sh
+# {{ ansible_managed }}
+set -eu
+PATH=/usr/sbin:/usr/bin:/sbin:/bin
+export PATH
+
+if ! ip -4 route show default | grep -q '^default '; then
+    echo "podman-network-guard: waiting for an IPv4 default route before starting pasta" >&2
+    exit 1
+fi
+
+# This local route lookup selects a source address without sending packets.
+route=$(ip -4 route get 1.1.1.1)
+case "$route" in
+    *" src "*) ;;
+    *)
+        echo "podman-network-guard: no usable IPv4 source address: $route" >&2
+        exit 1
+        ;;
+esac

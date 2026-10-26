@@ -2,8 +2,13 @@
 - name: Configure Debian storage
   hosts: device_roles_storage
   become: true
+  gather_facts: false
   tags: [storage]
   pre_tasks:
+    - name: Gather host facts for all storage task selections
+      ansible.builtin.setup:
+      tags: [always]
+
     - name: Require Debian 13 or newer
       ansible.builtin.assert:
         that:

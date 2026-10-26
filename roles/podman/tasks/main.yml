@@ -18,14 +18,14 @@
 
     - name: Install missing repository and rootless prerequisites
       ansible.builtin.apt:
-        name: [ca-certificates, python3-debian, uidmap, passt, dbus-user-session, python3, acl]
+        name: [ca-certificates, python3-debian, uidmap, passt, dbus-user-session, python3, acl, iproute2]
         state: present
         update_cache: true
         cache_valid_time: 3600
         install_recommends: false
         policy_rc_d: 101
       when: >-
-        ['ca-certificates', 'python3-debian', 'uidmap', 'passt', 'dbus-user-session', 'python3', 'acl']
+        ['ca-certificates', 'python3-debian', 'uidmap', 'passt', 'dbus-user-session', 'python3', 'acl', 'iproute2']
         | difference(ansible_facts.packages.keys() | list) | length > 0
 
     - name: Read the previous runtime version
@@ -160,6 +160,23 @@
       loop: "{{ podman_accounts }}"
       loop_control:
         label: "{{ item.name }}"
+
+    - name: Create the rootless runtime helper directory
+      ansible.builtin.file:
+        path: /usr/local/libexec
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+
+    - name: Install the pasta IPv4 startup guard
+      ansible.builtin.template:
+        src: network-guard.sh.j2
+        dest: /usr/local/libexec/podman-network-guard
+        owner: root
+        group: root
+        mode: "0755"
+        validate: /bin/sh -n %s
 
     - name: Gather network service readiness providers
       ansible.builtin.service_facts:

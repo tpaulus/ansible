@@ -1,6 +1,7 @@
 [Unit]
 Requires=shares-ready.service
-After=shares-ready.service
+Requires=zfs-mount.service
+After=shares-ready.service zfs-mount.service
 RequiresMountsFor={% for mount in config_resolved.mounts %}"{{ mount.path }}" {% endfor %}
 
 BindsTo={{ shares_mount_units.results | map(attribute='stdout') | join(' ') }}
