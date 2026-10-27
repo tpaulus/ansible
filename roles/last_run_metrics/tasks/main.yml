@@ -9,6 +9,7 @@
         ansible_facts['services']
         | dict2items
         | selectattr('key', 'match', '^(?:.*[-_])?node[_-]exporter(?:\.service)?$')
+        | selectattr('value.state', 'defined')
         | selectattr('value.state', 'equalto', 'running')
         | list
         | length > 0
