@@ -1,6 +1,235 @@
 ---
-- name: Migrate the installer-created administrator through the applier account
-  ansible.builtin.import_playbook: migrate-installer-admin.yml
+- name: Bootstrap applier access for the installer administrator migration
+  hosts: device_roles_storage
+  become: true
+  gather_facts: true
+  serial: 1
+  vars:
+    installer_admin_group: "{{ accounts_users[installer_admin_user].group }}"
+  pre_tasks:
+    - name: Resolve the inventory administrator account
+      ansible.builtin.set_fact:
+        installer_admin_user: >-
+          {{ accounts_users | dict2items
+             | selectattr('value.ssh_access', 'defined')
+             | selectattr('value.ssh_access')
+             | map(attribute='key') | first }}
+
+    - name: Require one explicitly limited Debian target
+      ansible.builtin.assert:
+        that:
+          - ansible_limit | default('') | length > 0
+          - ansible_limit != 'all'
+          - ansible_play_hosts_all | length == 1
+          - ansible_facts['distribution'] == 'Debian'
+          - not ansible_check_mode
+        fail_msg: "Limit this operation to one freshly installed Debian NAS."
+
+    - name: Read the installed administrator user and group
+      ansible.builtin.getent:
+        database: "{{ item }}"
+      loop: [passwd, group]
+
+    - name: Require the installed administrator account and group
+      ansible.builtin.assert:
+        that:
+          - installer_admin_user in ansible_facts.getent_passwd
+          - installer_admin_group in ansible_facts.getent_group
+        fail_msg: "The installed administrator account or group is missing; resolve it before recovery."
+
+    - name: Determine whether the administrator IDs need migration
+      ansible.builtin.set_fact:
+        installer_admin_migration_required: >-
+          {{ ansible_facts.getent_passwd[installer_admin_user][1] | int != accounts_users[installer_admin_user].uid | int
+             or ansible_facts.getent_passwd[installer_admin_user][2] | int != accounts_groups[installer_admin_group] | int
+             or ansible_facts.getent_group[installer_admin_group][1] | int != accounts_groups[installer_admin_group] | int }}
+
+    - name: Report that the administrator already has the inventory IDs
+      ansible.builtin.debug:
+        msg: "The administrator already has the inventory UID/GID; skipping the applier bootstrap and ID migration."
+      when: not (installer_admin_migration_required | bool)
+
+    - name: Read the effective SSH configuration for the NAS
+      ansible.builtin.command:
+        argv: [ssh, -G, "{{ ansible_host | default(inventory_hostname) }}"]
+      delegate_to: localhost
+      become: false
+      register: installer_admin_ssh_config
+      changed_when: false
+      when: installer_admin_migration_required | bool
+
+    - name: Require an SSH agent socket in the effective configuration
+      ansible.builtin.assert:
+        that:
+          - installer_admin_ssh_config.stdout_lines | select('match', '^identityagent ') | list | length == 1
+          - >-
+            (installer_admin_ssh_config.stdout_lines | select('match', '^identityagent ') | first)
+            | regex_replace('^identityagent ', '') != 'none'
+        fail_msg: "No SSH agent is configured for the NAS connection."
+      when: installer_admin_migration_required | bool
+
+    - name: Resolve the SSH agent socket used for the NAS connection
+      ansible.builtin.set_fact:
+        installer_admin_ssh_agent_socket: >-
+          {{ (installer_admin_ssh_config.stdout_lines | select('match', '^identityagent ') | first)
+             | regex_replace('^identityagent ', '') }}
+      when: installer_admin_migration_required | bool
+
+    - name: Read public keys offered by that SSH agent
+      ansible.builtin.command:
+        argv: [ssh-add, -L]
+      delegate_to: localhost
+      become: false
+      environment:
+        SSH_AUTH_SOCK: "{{ installer_admin_ssh_agent_socket }}"
+      register: installer_admin_ssh_agent
+      changed_when: false
+      failed_when: installer_admin_ssh_agent.rc != 0
+      when: installer_admin_migration_required | bool
+
+    - name: Require exactly one SSH agent identity for applier bootstrap
+      ansible.builtin.assert:
+        that:
+          - installer_admin_ssh_agent.stdout_lines | length == 1
+          - installer_admin_ssh_agent.stdout is match('^(ssh-|ecdsa-|sk-)')
+        fail_msg: >-
+          The SSH agent configured for this NAS must offer exactly one public key.
+          Unlock the intended 1Password SSH identity and retry.
+      when: installer_admin_migration_required | bool
+
+  tasks:
+    - name: Create the applier account and SSH access
+      ansible.builtin.import_role:
+        name: applier
+      vars:
+        applier_ssh_authorized_key: "{{ installer_admin_ssh_agent.stdout }}"
+      when: installer_admin_migration_required | bool
+
+    - name: Close the installer-account SSH connection
+      ansible.builtin.meta: reset_connection
+      when: installer_admin_migration_required | bool
+
+- name: Change the administrator from installer IDs to inventory IDs through applier
+  hosts: device_roles_storage
+  remote_user: applier
+  vars:
+    ansible_user: applier
+    installer_admin_user: "{{ hostvars[inventory_hostname].installer_admin_user }}"
+    installer_admin_group: "{{ accounts_users[installer_admin_user].group }}"
+  become: true
+  gather_facts: false
+  serial: 1
+  pre_tasks:
+    - name: Skip the ID migration when the administrator already has the inventory IDs
+      ansible.builtin.meta: end_play
+      when: not (hostvars[inventory_hostname].installer_admin_migration_required | default(false) | bool)
+
+    - name: Read the installed administrator user and group
+      ansible.builtin.getent:
+        database: "{{ item }}"
+      loop: [passwd, group]
+
+    - name: Require the administrator to have the installer or inventory identity
+      ansible.builtin.assert:
+        that:
+          - installer_admin_user in ansible_facts.getent_passwd
+          - installer_admin_group in ansible_facts.getent_group
+          - ansible_facts.getent_passwd[installer_admin_user][1] | int in [1000, accounts_users[installer_admin_user].uid | int]
+          - ansible_facts.getent_passwd[installer_admin_user][2] | int in [1000, accounts_groups[installer_admin_group] | int]
+          - ansible_facts.getent_group[installer_admin_group][1] | int in [1000, accounts_groups[installer_admin_group] | int]
+          - >-
+            ansible_facts.getent_passwd | dict2items | rejectattr('key', 'equalto', installer_admin_user)
+            | selectattr('value.1', 'equalto', accounts_users[installer_admin_user].uid | string)
+            | list | length == 0
+          - >-
+            ansible_facts.getent_group | dict2items | rejectattr('key', 'equalto', installer_admin_group)
+            | selectattr('value.1', 'equalto', accounts_groups[installer_admin_group] | string)
+            | list | length == 0
+        fail_msg: >-
+          The administrator does not have the expected installer/inventory IDs, or the inventory UID/GID
+          is already assigned to another account. Resolve the conflict manually.
+
+    - name: List remaining administrator processes
+      ansible.builtin.command:
+        argv: [ps, -U, "{{ installer_admin_user }}", -u, "{{ installer_admin_user }}", -o, "pid=,comm="]
+      register: installer_admin_processes
+      changed_when: false
+
+    - name: Resolve administrator process names
+      ansible.builtin.set_fact:
+        installer_admin_process_names: >-
+          {{ installer_admin_processes.stdout_lines
+             | map('trim')
+             | reject('equalto', '')
+             | map('split')
+             | map('last')
+             | list }}
+
+    - name: Refuse to stop administrator shells or other running processes
+      ansible.builtin.assert:
+        that:
+          - installer_admin_process_names | difference(['systemd', '(sd-pam)']) | length == 0
+        fail_msg: >-
+          The administrator still has processes beyond the systemd user session:
+          {{ installer_admin_processes.stdout_lines | join(', ') }}.
+          Log out of the administrator shell and stop these processes, then rerun.
+
+    - name: Terminate the administrator's remaining systemd user session
+      ansible.builtin.command:
+        argv: [loginctl, terminate-user, "{{ installer_admin_user }}"]
+      changed_when: true
+      when: installer_admin_process_names | length > 0
+
+    - name: Wait for administrator processes to stop
+      ansible.builtin.command:
+        argv: [ps, -U, "{{ installer_admin_user }}", -u, "{{ installer_admin_user }}", -o, "pid=,comm="]
+      register: installer_admin_processes_after
+      changed_when: false
+      failed_when: installer_admin_processes_after.rc not in [0, 1]
+      until: installer_admin_processes_after.stdout | trim | length == 0
+      retries: 10
+      delay: 1
+
+  tasks:
+    - name: Set the administrator group to its inventory GID
+      ansible.builtin.group:
+        name: "{{ installer_admin_group }}"
+        gid: "{{ accounts_groups[installer_admin_group] }}"
+        state: present
+
+    - name: Set the administrator to its inventory UID
+      ansible.builtin.user:
+        name: "{{ installer_admin_user }}"
+        uid: "{{ accounts_users[installer_admin_user].uid }}"
+        group: "{{ installer_admin_group }}"
+        create_home: false
+        state: present
+
+    - name: Update ownership of the administrator home after the ID change
+      ansible.builtin.file:
+        path: "{{ accounts_users[installer_admin_user].home }}"
+        state: directory
+        owner: "{{ installer_admin_user }}"
+        group: "{{ installer_admin_group }}"
+        recurse: true
+
+- name: Restore the default applier SSH key after the administrator migration
+  hosts: device_roles_storage
+  remote_user: applier
+  vars:
+    ansible_user: applier
+    installer_admin_user: "{{ hostvars[inventory_hostname].installer_admin_user }}"
+  become: true
+  gather_facts: false
+  serial: 1
+  pre_tasks:
+    - name: Skip applier setup when the administrator IDs already match inventory
+      ansible.builtin.meta: end_play
+      when: not (hostvars[inventory_hostname].installer_admin_migration_required | default(false) | bool)
+  tasks:
+    - name: Reapply the standard applier configuration and key
+      ansible.builtin.import_role:
+        name: applier
 
 - name: Import approved storage, then run normal site provisioning
   hosts: device_roles_storage
