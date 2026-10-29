@@ -20,10 +20,12 @@ Unattended-Upgrade::Remove-Unused-Kernel-Packages "true";
 // Automatically remove unused dependencies
 Unattended-Upgrade::Remove-Unused-Dependencies "true";
 
-// Enable automatic reboots after updates when needed
-// However, we do not do this for K3s nodes, as Kured
-// Reboots those nodes
-Unattended-Upgrade::Automatic-Reboot "{{ ('tags_k3s' not in group_names) | ternary('true', 'false') }}";
+// Enable scheduled automatic reboots except on K3s and storage hosts
+{% set automatic_reboot = 'tags_k3s' not in group_names and 'device_roles_storage' not in group_names %}
+Unattended-Upgrade::Automatic-Reboot "{{ automatic_reboot | ternary('true', 'false') }}";
+{% if automatic_reboot %}
+Unattended-Upgrade::Automatic-Reboot-Time "04:00";
+{% endif %}
 
 // Added safety measures
 Unattended-Upgrade::MinimalSteps "true";
