@@ -39,7 +39,7 @@
     uid: "{{ applier_id }}"
     group: applier
     groups: "{{ ['ssh'] if 'ssh' in ansible_facts.getent_group else omit }}"
-    append: "{{ 'ssh' in ansible_facts.getent_group or inventory_hostname | lower == 'beaconhill' }}"
+    append: true
     create_home: true
     shell: /bin/bash
     password_lock: true
