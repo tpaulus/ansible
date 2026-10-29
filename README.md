@@ -499,6 +499,9 @@ individual stalled backend requests. Prometheus configuration remains backed up;
 its large metric data is excluded. WebDAV state and documents are not included
 in Restic backups.
 `/usr/local/sbin/backup-to-b2` remains the stable backup entry point.
+After deploying a backup-script change to the NAS, interrupt an active
+`restic.service` during a planned window and confirm no
+`.b2_backup_*.prom.*` worker temp files remain in the textfile metrics directory.
 App repositories retain a seven-day window (`forget --keep-within 7d`);
 file repositories retain their existing 7-daily/5-weekly/7-monthly policy.
 Backup and retention group by host, not the changing generation path.

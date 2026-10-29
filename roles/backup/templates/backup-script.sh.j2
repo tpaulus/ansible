@@ -71,6 +71,7 @@ backup_source() {
     local snapshot_json="" backup_ok=0 cleanup_ok=0 result=0
     local completed_at="" finished_at="" duration=""
 
+    trap cleanup EXIT
     metric_tmp="$metrics_dir/.b2_backup_${key}.prom.$$"
     export RESTIC_REPOSITORY="s3:$S3_ENDPOINT/$BUCKET_NAME/$share"
 
