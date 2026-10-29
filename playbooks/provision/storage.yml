@@ -4,6 +4,16 @@
   become: true
   gather_facts: false
   tags: [storage]
+  vars:
+    storage_role_tags: &storage_role_tags
+      - shares
+      - accounts
+      - backups
+      - maintenance
+      - apps
+      - jellyfin
+      - prometheus
+      - webdav
   pre_tasks:
     - name: Gather host facts for all storage task selections
       ansible.builtin.setup:
@@ -18,11 +28,11 @@
 
   roles:
     - role: config
-      tags: [shares, accounts, backups, maintenance, apps, jellyfin, prometheus, webdav]
+      tags: *storage_role_tags
     - role: alloy
       tags: [logging]
     - role: storage
-      tags: [shares, accounts, backups, maintenance, apps, jellyfin, prometheus, webdav]
+      tags: *storage_role_tags
     - role: accounts
       tags: [accounts]
     - role: shares
