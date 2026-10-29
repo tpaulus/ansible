@@ -31,9 +31,7 @@ PROCESS_MARKERS = (
 )
 LOCKS = (
     "/run/lock/restic.lock",
-    "/run/lock/app-snapshots-jellyfin.lock",
-    "/run/lock/app-snapshots-prometheus.lock",
-    "/run/lock/app-snapshots-webdav.lock",
+    "/run/lock/cloud-sync.lock",
 )
 
 
@@ -65,8 +63,9 @@ def active_processes():
 
 def locked_files():
     active = []
-    for filename in LOCKS:
-        path = Path(filename)
+    paths = [Path(filename) for filename in LOCKS]
+    paths.extend(Path("/run/lock").glob("app-snapshots-*.lock"))
+    for path in paths:
         if not path.exists():
             continue
         try:
@@ -77,7 +76,7 @@ def locked_files():
             continue
         except OSError as error:
             if error.errno in (errno.EACCES, errno.EAGAIN):
-                active.append(filename)
+                active.append(str(path))
             else:
                 raise
     return active
