@@ -131,17 +131,21 @@
       changed_when: false
       when: export_pool_is_imported
 
+    - name: Index application accounts by name
+      ansible.builtin.set_fact:
+        export_accounts_by_name: "{{ dict(apps_accounts | map(attribute='name') | zip(apps_accounts)) }}"
+
     - name: Stop selected rootless application services cleanly
       ansible.builtin.systemd_service:
         scope: user
         name: "{{ item.key }}.service"
         state: stopped
       become: true
-      become_user: "{{ (apps_accounts | selectattr('name', 'equalto', item.value.account) | first).name }}"
+      become_user: "{{ export_accounts_by_name[item.value.account].name }}"
       environment:
-        HOME: "{{ (apps_accounts | selectattr('name', 'equalto', item.value.account) | first).home }}"
-        XDG_RUNTIME_DIR: "/run/user/{{ (apps_accounts | selectattr('name', 'equalto', item.value.account) | first).uid }}"
-        DBUS_SESSION_BUS_ADDRESS: "unix:path=/run/user/{{ (apps_accounts | selectattr('name', 'equalto', item.value.account) | first).uid }}/bus"
+        HOME: "{{ export_accounts_by_name[item.value.account].home }}"
+        XDG_RUNTIME_DIR: "/run/user/{{ export_accounts_by_name[item.value.account].uid }}"
+        DBUS_SESSION_BUS_ADDRESS: "unix:path=/run/user/{{ export_accounts_by_name[item.value.account].uid }}/bus"
       loop: "{{ apps_definitions | dict2items }}"
       loop_control:
         label: "{{ item.key }}"
