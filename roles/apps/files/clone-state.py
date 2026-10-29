@@ -97,7 +97,7 @@ def migrate(config, mount):
     required_state(root, mount)
     marker = root / ".nas-app-imported"
     if marker.exists():
-        if marker.is_symlink() or marker.read_text() != mount["import_name"] + "\n":
+        if marker.is_symlink() or marker.read_text().strip() != mount["import_name"]:
             raise ValueError("Unexpected import marker")
         print("Already restored " + mount["import_name"])
         return
