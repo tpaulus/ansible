@@ -455,6 +455,10 @@ normal application runs never import databases. It requires
 confirmations, and either a staging root/dataset or explicit clone mappings.
 Restore state before starting apps and preserve existing library paths and
 numeric ownership.
+If a staged copy import fails partway through, its target dataset may contain
+incomplete state. Verify the target dataset, destroy only that dataset with
+`zfs destroy TARGET_DATASET`, then rerun the import; do not destroy the source
+dataset or backup.
 SMB password resets do not rotate WebDAV credentials.
 
 Prometheus's original imported configuration is archived once and included
