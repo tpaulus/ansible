@@ -34,8 +34,7 @@
     name: "{{ storage_root.dataset }}"
     state: present
     extra_zfs_properties: >-
-      {{ storage_root.properties | default({}) | combine(
-          {'mountpoint': storage_root.path | zfs_mountpoint(storage_root.dataset, storage_pools)}) }}
+      {{ {'mountpoint': storage_root.path | zfs_mountpoint(storage_root.dataset, storage_pools)} }}
   when: not storage_dataset_exists and storage_root.create and storage_root.kind == 'dataset'
 
 - name: Verify declared backing storage
