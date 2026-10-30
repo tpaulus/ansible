@@ -6,7 +6,7 @@ prometheus_image: "prom/prometheus:v3.15.1@sha256:fa3302279710be2f21a8301ec17a8b
 # renovate: datasource=docker depName=httpd
 webdav_image: "httpd:2.4.69@sha256:d3accb516506c05ae0068bb54ba6798a10b249b64db91268fca692326cb02b4b"
 # renovate: datasource=github-releases depName=grafana/alloy extractVersion=^v(?<version>.*)$
-alloy_version: "1.20.1"
+alloy_version: "1.21.3"
 # Podman and exporter major versions must be upgraded together.
 podman_version: "6.1.3"
 # renovate: datasource=docker depName=quay.io/navidys/prometheus-podman-exporter
