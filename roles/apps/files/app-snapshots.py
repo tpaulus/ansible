@@ -164,11 +164,16 @@ def prune(config, now=None):
             continue
         if parent.resolve() != parent or not parent.is_dir():
             raise ValueError("Generation parent is not a real directory")
+        generations = []
         for path in parent.iterdir():
             created = generation_time(path.name)
             if path.resolve() != path or not path.is_dir():
                 raise ValueError("Snapshot generation is not a real directory")
-            if created >= cutoff:
+            generations.append((path, created))
+        newest = max((created for _, created in generations), default=None)
+        for path, created in generations:
+            if (created >= cutoff or created == newest
+                    or path in published.values()):
                 continue
             execute([config["mount_guard"], str(path), target["dataset"]])
             # Refuse nested mounts before deleting a specific owned generation.
@@ -176,9 +181,6 @@ def prune(config, now=None):
                 for entry in [Path(base)] + [Path(base) / name for name in directories]:
                     if not entry.is_symlink() and entry.stat().st_dev != root.stat().st_dev:
                         raise ValueError("Nested filesystem in snapshot generation")
-            for filename, generation in published.items():
-                if generation == path:
-                    (root / filename).unlink()
             shutil.rmtree(path)
     datasets = config["sources"] + target.get("retired_datasets", [])
     for source in datasets:
