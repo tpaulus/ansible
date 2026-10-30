@@ -5,8 +5,6 @@
   serial: 1
   any_errors_fatal: true
   tags: [maintenance, updates]
-  vars:
-    update_services: [consul, docker, weave, weave-expose, nomad]
   tasks:
     - name: Validate update targets
       ansible.builtin.assert:
@@ -14,61 +12,79 @@
           - ansible_facts['os_family'] == 'Debian'
           - ansible_limit | default('') | length > 0
           - ansible_limit != 'all'
-        fail_msg: Updates require Debian-family compute hosts and an explicit --limit.
+          - k3s_update_control_host is defined
+          - k3s_update_control_host in groups['tags_k3s']
+          - hostvars[k3s_update_control_host]['k3s_control_node'] | default(false) | bool
+          - k3s_update_control_host not in ansible_play_hosts_all
+        fail_msg: Updates require Debian-family compute hosts, an explicit --limit, and a surviving K3s control host set with k3s_update_control_host.
 
-    - name: Record service states before updating
-      ansible.builtin.service_facts:
-
-    - name: Record previously running services
+    - name: Read Kubernetes node name
       ansible.builtin.set_fact:
-        update_active_services: >-
-          {{ ansible_facts['services'] | dict2items
-             | selectattr('value.state', 'equalto', 'running')
-             | map(attribute='key') | select('in', update_services | map('regex_replace', '$', '.service') | list)
-             | list }}
+        update_k3s_node: "{{ ansible_facts['hostname'] | lower }}"
+
+    - name: Verify surviving control-plane health
+      delegate_to: "{{ k3s_update_control_host }}"
+      ansible.builtin.command:
+        argv: [kubectl, get, --raw=/readyz]
+      changed_when: false
+
+    - name: Cordon target node
+      delegate_to: "{{ k3s_update_control_host }}"
+      ansible.builtin.command:
+        argv: [kubectl, cordon, "{{ update_k3s_node }}"]
+      register: update_k3s_cordon
+      changed_when: "'already cordoned' not in update_k3s_cordon.stdout"
+
+    - name: Drain target node
+      delegate_to: "{{ k3s_update_control_host }}"
+      ansible.builtin.command:
+        argv:
+          - kubectl
+          - drain
+          - "{{ update_k3s_node }}"
+          - --ignore-daemonsets
+          - --delete-emptydir-data
+          - --timeout=300s
+      register: update_k3s_drain
+      changed_when: "'evicting pod' in update_k3s_drain.stdout"
+
+    - name: Mark drained node for automatic uncordon after reboot
+      ansible.builtin.file:
+        path: /etc/k3s-drained
+        state: touch
+        mode: "0644"
 
     - name: Refresh APT cache
       ansible.builtin.apt:
         update_cache: true
 
-    - name: Preview packages requiring scheduler maintenance
+    - name: Upgrade packages
       ansible.builtin.apt:
         upgrade: full
-      check_mode: true
-      register: update_package_plan
-      environment:
-        LC_ALL: C
-      changed_when: false
+        autoremove: true
+        autoclean: true
 
-    - name: Upgrade system with service restoration
-      block:
-        - name: Stop active scheduler
-          when:
-            - "'nomad.service' in update_active_services"
-            - update_package_plan.stdout_lines | select('match', '^Inst (docker-ce|nomad|consul)(:| )') | list | length > 0
-          ansible.builtin.systemd_service:
-            name: nomad
-            state: stopped
+    - name: Inspect reboot requirement
+      ansible.builtin.stat:
+        path: /run/reboot-required
+      register: update_reboot
 
-        - name: Upgrade packages
-          ansible.builtin.apt:
-            upgrade: full
-            autoremove: true
-            autoclean: true
+    - name: Reboot when required
+      when: update_reboot.stat.exists
+      ansible.builtin.reboot:
+        reboot_timeout: 300
+        msg: Reboot initiated by Ansible for package updates
 
-        - name: Inspect reboot requirement
-          ansible.builtin.stat:
-            path: /run/reboot-required
-          register: update_reboot
+    - name: Uncordon target when no reboot is required
+      when: not update_reboot.stat.exists
+      delegate_to: "{{ k3s_update_control_host }}"
+      ansible.builtin.command:
+        argv: [kubectl, uncordon, "{{ update_k3s_node }}"]
+      register: update_k3s_uncordon
+      changed_when: "'already uncordoned' not in update_k3s_uncordon.stdout"
 
-        - name: Reboot when required
-          when: update_reboot.stat.exists
-          ansible.builtin.reboot:
-            reboot_timeout: 300
-            msg: Reboot initiated by Ansible for package updates
-      always:
-        - name: Restore previously running services
-          ansible.builtin.systemd_service:
-            name: "{{ item }}"
-            state: started
-          loop: "{{ update_active_services }}"
+    - name: Remove drained marker when no reboot is required
+      when: not update_reboot.stat.exists
+      ansible.builtin.file:
+        path: /etc/k3s-drained
+        state: absent
