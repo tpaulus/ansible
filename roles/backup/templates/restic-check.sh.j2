@@ -3,7 +3,6 @@
 set -euo pipefail
 umask 077
 exec 9>{{ backup_lock | quote }}
-flock -w 21600 9 || { echo "Timed out waiting for NAS backups before integrity check" >&2; exit 75; }
 export RESTIC_PASSWORD={{ offsite_restic_password | quote }}
 export AWS_ACCESS_KEY_ID={{ b2_account_id | quote }}
 export AWS_SECRET_ACCESS_KEY={{ b2_account_key | quote }}
@@ -29,6 +28,20 @@ for share in "${SHARES[@]}"; do
             continue
         fi
     fi
+    if ! flock -w 21600 9; then
+        echo "Timed out waiting for NAS backups before metadata check for $share" >&2
+        printf 'b2_check_failed{share="%s", bucket_name="%s"} %s\n' "$share" "$BUCKET_NAME" "$(date +%s)" >> "$temporary"
+        result=1
+        continue
+    fi
+    if ! "$RESTIC" --retry-lock 5m check; then
+        flock -u 9
+        echo "Repository metadata check failed for $share" >&2
+        printf 'b2_check_failed{share="%s", bucket_name="%s"} %s\n' "$share" "$BUCKET_NAME" "$(date +%s)" >> "$temporary"
+        result=1
+        continue
+    fi
+    flock -u 9
     if "$RESTIC" --retry-lock 5m check --read-data-subset "$subset/4"; then
         printf '%s\n' "$((subset % 4 + 1))" > "$state.new"
         mv "$state.new" "$state"
