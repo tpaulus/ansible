@@ -28,15 +28,10 @@
     {
       "matchManagers": ["custom.regex"],
       "matchFileNames": ["inventories/production/group_vars/device_roles_storage/versions.yml"],
-      "automerge": false,
-      "pinDigests": true
-    },
-    {
-      "matchManagers": ["custom.regex"],
-      "matchFileNames": ["inventories/production/group_vars/device_roles_storage/versions.yml"],
       "matchDatasources": ["docker"],
       "matchUpdateTypes": ["digest", "patch"],
-      "automerge": true
+      "automerge": true,
+      "pinDigests": true
     }
   ]
 }
