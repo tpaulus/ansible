@@ -493,13 +493,18 @@ Backup and retention group by host, not the changing generation path.
 Restic's window is relative to the latest backup, preserving recovery points
 through an outage rather than deleting the last usable backup.
 Weekly `restic-check.timer` checks repository metadata and reads a rotating
-quarter of each repository's stored data, advancing only on success. It shares
-the backup lock and publishes completion/failure metrics. Scheduled checks do
-not replace periodic restore rehearsals. Initialize repositories and unlock
-stale locks deliberately.
+quarter of each repository's stored data, advancing only on success. The
+metadata check shares the backup lock; the longer data scan does not hold that
+external lock and relies on Restic's repository locking. Checks publish
+completion/failure metrics. Scheduled checks do not replace periodic restore
+rehearsals. Initialize repositories and unlock stale locks deliberately.
 `b2_check_expected` independently lists every enabled repository so central
 alerts can detect checks that never ran or stopped publishing, not only explicit
 `b2_check_failed` results. Central Restic integrity rules live in the K3s repository.
+After deploying a lock change, verify on the NAS during a planned window that a
+backup can run while a long integrity data scan is active, then confirm both
+`b2_backup_completed` and `b2_check_completed` advance and the check subset state
+advances only after success.
 
 Cloud sync derives filters and runtime mount checks from the same
 `backup_cloud_sync_source_keys` list, verifying every selected child dataset
