@@ -20,7 +20,7 @@
   vars:
     backup_source_storage: "{{ config_resolved.datasets[item.dataset_key] if item.kind == 'files' else item.snapshot }}"
   ansible.builtin.command:
-    argv: ["{{ backup_mount_guard }}", "{{ backup_source_storage.path }}", "{{ backup_source_storage.dataset }}"]
+    argv: ["{{ mount_guard_path }}", "{{ backup_source_storage.path }}", "{{ backup_source_storage.dataset }}"]
   loop: "{{ backup_sources }}"
   loop_control:
     label: "{{ item.key }}"

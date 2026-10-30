@@ -8,4 +8,4 @@ BindsTo={{ shares_mount_units.results | map(attribute='stdout') | join(' ') }}
 After={{ shares_mount_units.results | map(attribute='stdout') | join(' ') }}
 
 [Service]
-ExecStartPre=/usr/local/libexec/mount-guard{% for mount in config_resolved.mounts %} "{{ mount.path }}" "{{ mount.dataset }}"{% endfor %}
+ExecStartPre={{ mount_guard_path }}{% for mount in config_resolved.mounts %} "{{ mount.path }}" "{{ mount.dataset }}"{% endfor %}

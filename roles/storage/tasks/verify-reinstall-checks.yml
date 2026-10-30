@@ -29,12 +29,12 @@
 
 - name: Verify the approved pool mountpoint
   ansible.builtin.command:
-    argv: ["{{ storage_mount_guard }}", "{{ storage_pools[verify_pool_name].mountpoint }}", "{{ verify_pool_name }}"]
+    argv: ["{{ mount_guard_path }}", "{{ storage_pools[verify_pool_name].mountpoint }}", "{{ verify_pool_name }}"]
   changed_when: false
 
 - name: Verify every configured share, app and retained-state mount
   ansible.builtin.command:
-    argv: ["{{ storage_mount_guard }}", "{{ item.path }}", "{{ item.dataset }}"]
+    argv: ["{{ mount_guard_path }}", "{{ item.path }}", "{{ item.dataset }}"]
   loop: "{{ verify_required_mounts | unique(attribute='path') | list }}"
   loop_control:
     label: "{{ item.dataset }} at {{ item.path }}"

@@ -11,7 +11,7 @@
 - name: Verify snapshot backing storage before maintenance changes
   ansible.builtin.command:
     argv:
-      - "{{ maintenance_mount_guard }}"
+      - "{{ mount_guard_path }}"
       - "{{ config_resolved.datasets[item.dataset_key].path }}"
       - "{{ config_resolved.datasets[item.dataset_key].dataset }}"
   loop: "{{ maintenance_snapshots }}"

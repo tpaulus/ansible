@@ -10,7 +10,7 @@
 
 - name: Check pool backing mounts
   ansible.builtin.command:
-    argv: ["{{ storage_mount_guard }}", "{{ item.value.mountpoint }}", "{{ item.key }}"]
+    argv: ["{{ mount_guard_path }}", "{{ item.value.mountpoint }}", "{{ item.key }}"]
   loop: "{{ storage_pools | dict2items }}"
   changed_when: false
   when: not ansible_check_mode

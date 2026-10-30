@@ -35,7 +35,7 @@
     - name: Verify approved pool backing mounts
       ansible.builtin.command:
         argv:
-          - /usr/local/libexec/mount-guard
+          - "{{ mount_guard_path }}"
           - "{{ item.value.mountpoint }}"
           - "{{ item.key }}"
       loop: "{{ storage_pools | dict2items }}"
@@ -97,7 +97,7 @@
 
     - name: Verify imported app and backup datasets are mounted at their approved paths
       ansible.builtin.command:
-        argv: ["{{ storage_mount_guard }}", "{{ item.path }}", "{{ item.dataset }}"]
+        argv: ["{{ mount_guard_path }}", "{{ item.path }}", "{{ item.dataset }}"]
       loop: >-
         {{ (apps_resolved | map(attribute='mounts') | flatten
             | selectattr('require_import', 'defined') | selectattr('require_import') | list)

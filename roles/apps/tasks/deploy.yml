@@ -49,7 +49,7 @@
 
 - name: Verify the backing dataset before creating disposable app directories
   ansible.builtin.command:
-    argv: ["{{ apps_mount_guard }}", "{{ item.path | dirname }}", "{{ item.dataset }}"]
+    argv: ["{{ mount_guard_path }}", "{{ item.path | dirname }}", "{{ item.dataset }}"]
   loop: "{{ apps_app.mounts | selectattr('create_directory', 'defined') | selectattr('create_directory') | list }}"
   loop_control:
     label: "{{ item.path }}"

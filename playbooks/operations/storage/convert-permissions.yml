@@ -63,14 +63,14 @@
 
     - name: Ensure mount guard directory
       ansible.builtin.file:
-        path: /usr/local/libexec
+        path: "{{ mount_guard_path | dirname }}"
         state: directory
         mode: "0755"
 
     - name: Install the backing-filesystem verifier for conversion
       ansible.builtin.copy:
         src: "{{ playbook_dir }}/../../../roles/storage/files/mount-guard"
-        dest: /usr/local/libexec/mount-guard
+        dest: "{{ mount_guard_path }}"
         mode: "0755"
 
     - name: Stage the reviewed conversion manifest
@@ -82,7 +82,8 @@
     - name: Validate selected permission scope before changes
       ansible.builtin.script:
         cmd: >-
-          {{ playbook_dir }}/../../../scripts/convert-permissions.py /var/lib/nas-migration/permissions.json
+          {{ playbook_dir }}/../../../scripts/convert-permissions.py
+          /var/lib/nas-migration/permissions.json --mount-guard {{ mount_guard_path | quote }}
           {{ '--recursive' if permission_roots is defined else '' }}
         executable: /usr/bin/python3
       changed_when: false
@@ -92,7 +93,8 @@
     - name: Apply reviewed permissions without deleting legacy ACL metadata
       ansible.builtin.script:
         cmd: >-
-          {{ playbook_dir }}/../../../scripts/convert-permissions.py /var/lib/nas-migration/permissions.json --apply
+          {{ playbook_dir }}/../../../scripts/convert-permissions.py
+          /var/lib/nas-migration/permissions.json --mount-guard {{ mount_guard_path | quote }} --apply
           {{ '--recursive' if permission_roots is defined else '' }}
         executable: /usr/bin/python3
       changed_when: true

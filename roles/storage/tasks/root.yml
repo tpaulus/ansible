@@ -8,7 +8,7 @@
 - name: Verify parent filesystem before creation
   ansible.builtin.command:
     argv:
-      - /usr/local/libexec/mount-guard
+      - "{{ mount_guard_path }}"
       - "{{ storage_root.path | dirname }}"
       - "{{ storage_root.dataset | dirname if storage_root.kind == 'dataset' else storage_root.dataset }}"
   changed_when: false
@@ -40,7 +40,7 @@
 - name: Verify declared backing storage
   ansible.builtin.command:
     argv:
-      - /usr/local/libexec/mount-guard
+      - "{{ mount_guard_path }}"
       - "{{ storage_root.path if storage_root.kind == 'dataset' else storage_root.path | dirname }}"
       - "{{ storage_root.dataset }}"
   changed_when: false

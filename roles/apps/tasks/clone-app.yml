@@ -7,7 +7,7 @@
           'sources_stopped': apps_import_sources_stopped | bool,
           'backups_verified': apps_import_backups_verified | bool,
           'migration': apps_clone_migration,
-          'mount_guard': apps_mount_guard,
+          'mount_guard': mount_guard_path,
           'mounts': [apps_clone_sources[item.import_name] | combine({
             'dataset': item.dataset, 'path': item.path,
             'mountpoint': item.path | zfs_mountpoint(item.dataset, storage_pools),

@@ -1,2 +1,2 @@
 [Service]
-ExecStartPre={{ maintenance_mount_guard }}{% for policy in maintenance_snapshots %} "{{ config_resolved.datasets[policy.dataset_key].path }}" "{{ config_resolved.datasets[policy.dataset_key].dataset }}"{% endfor %}
+ExecStartPre={{ mount_guard_path }}{% for policy in maintenance_snapshots %} "{{ config_resolved.datasets[policy.dataset_key].path }}" "{{ config_resolved.datasets[policy.dataset_key].dataset }}"{% endfor %}

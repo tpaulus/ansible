@@ -12,7 +12,7 @@
   listen: Reload NAS exports
   ansible.builtin.command:
     argv: >-
-      {{ ['/usr/local/libexec/mount-guard'] +
+      {{ [mount_guard_path] +
          (config_resolved.mounts | map(attribute='path') |
           zip(config_resolved.mounts | map(attribute='dataset')) | map('list') | flatten) }}
   changed_when: false

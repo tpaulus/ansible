@@ -18,7 +18,7 @@ PATHS=({% for source in sources %}{% set storage = config_resolved.datasets[sour
 DATASETS=({% for source in sources %}{% set storage = config_resolved.datasets[source.dataset_key] if source.kind == 'files' else source.snapshot %}{{ storage.dataset | quote }} {% endfor %})
 KINDS=({% for source in sources %}{{ source.kind | quote }} {% endfor %})
 APPS=({% for source in sources %}{{ source.app | default('') | quote }} {% endfor %})
-GUARD={{ backup_mount_guard | quote }}
+GUARD={{ mount_guard_path | quote }}
 SNAPSHOT_RESULT={{ backup_snapshot_result_bin | quote }}
 APP_SNAPSHOTS={{ backup_app_snapshots_bin | quote }}
 MAX_RETRIES="${MAX_RETRIES:-3}"

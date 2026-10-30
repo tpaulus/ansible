@@ -378,7 +378,7 @@
 
     - name: Verify expected share, app and recovery dataset mounts before provisioning
       ansible.builtin.command:
-        argv: ["/usr/local/libexec/mount-guard", "{{ item.path }}", "{{ item.dataset }}"]
+        argv: ["{{ mount_guard_path }}", "{{ item.path }}", "{{ item.dataset }}"]
       loop: >-
         {{ (config_resolved.mounts | list)
            + (apps_resolved | map(attribute='mounts') | flatten

@@ -1,6 +1,5 @@
 ---
 storage_pools: {}
-storage_mount_guard: /usr/local/libexec/mount-guard
 storage_packages:
   - zfsutils-linux
   - zfs-dkms
