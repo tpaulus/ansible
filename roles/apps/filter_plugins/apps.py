@@ -2,8 +2,21 @@
 import copy
 import posixpath
 import re
+import shlex
 
 from ansible.errors import AnsibleFilterError
+
+
+def health_cmd_args(value):
+    if not isinstance(value, str) or not value:
+        raise AnsibleFilterError("Application health command must be a nonempty string")
+    try:
+        args = shlex.split(value)
+    except ValueError as error:
+        raise AnsibleFilterError(f"Invalid application health command: {error}") from error
+    if not args:
+        raise AnsibleFilterError("Application health command must contain arguments")
+    return args
 
 
 def absolute_path(value):
@@ -172,6 +185,7 @@ class FilterModule:
             "resolve_apps": resolve_apps,
             "select_apps": select_apps,
             "snapshot_config": snapshot_config,
+            "health_cmd_args": health_cmd_args,
             "readonly_mount_args": lambda mounts: [
                 arg for mount in mounts
                 for arg in ("--volume", f"{mount['path']}:{mount['target']}:ro")

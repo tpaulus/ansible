@@ -27,14 +27,14 @@ Environment="{{ key }}={{ value }}"
 {% if apps_app.gpu_device is defined %}
 AddDevice={{ apps_gpu_realpath.stdout }}:{{ apps_app.gpu_container_device }}:{{ apps_app.gpu_device_access }}
 {% endif %}
-PodmanArgs=--runtime=crun --stop-timeout=150{% for arg in apps_app.podman_args | default([]) %} {{ arg }}{% endfor %}
+PodmanArgs=--runtime=crun --stop-timeout=150{% for arg in apps_app.podman_args | default([]) %} {{ arg }}{% endfor +%}
 {% if apps_app.entrypoint is defined %}
 Entrypoint={{ apps_app.entrypoint }}
 {% endif %}
 {% if apps_app.command is defined %}
 Exec={{ apps_app.command | join(' ') }}
 {% endif %}
-HealthCmd={{ apps_app.health_cmd }}
+HealthCmd={{ apps_app.health_cmd | health_cmd_args | to_json }}
 HealthInterval=30s
 HealthTimeout=5s
 HealthRetries=5
