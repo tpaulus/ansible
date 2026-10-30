@@ -13,7 +13,7 @@ def absolute_path(value):
 
 
 def select_apps(configured, run_tags):
-    application_tags = set(run_tags) & {"jellyfin", "prometheus", "webdav"}
+    application_tags = set(run_tags) & set(configured)
     if application_tags and not set(run_tags) & {"all", "apps"}:
         return [name for name in configured if name in application_tags]
     return configured
@@ -48,12 +48,20 @@ def snapshot_config(app, snapshots, mount_guard, retention_days):
             f"{home}/.config/containers/containers.conf",
             f"{home}/.config/containers/storage.conf",
         ]
-        if app["name"] == "webdav":
-            files.extend([f"{home}/.config/apps/httpd.conf",
-                          f"{home}/.config/apps/webdavhtbasic"])
+        private_files = app.get("snapshot_private_files", [])
+        if (not isinstance(private_files, list)
+                or any(not isinstance(filename, str) or not filename
+                       or filename.startswith("/")
+                       or posixpath.normpath(filename) != filename
+                       or ".." in filename.split("/")
+                       or any(char in filename for char in "\n\r\x00")
+                       for filename in private_files)):
+            raise ValueError("Snapshot private files must be safe app-home-relative paths")
+        files.extend(f"{home}/{filename}" for filename in private_files)
         return {
             "name": app["name"], "identity": app["identity"], "image": app["image"],
             "snapshot": target, "sources": sources, "private_files": files,
+            "rsync_excludes": app.get("rsync_excludes", []),
             "retention_days": retention_days,
             "mount_guard": mount_guard, "readiness_url": app["readiness_url"],
             "readiness_status": app.get("readiness_status", 200),
@@ -69,8 +77,8 @@ def resolve_apps(apps, resolved, accounts, selected):
         account_map = {account["name"]: account for account in accounts}
         result = []
         for name in selected:
-            if name not in ("jellyfin", "prometheus", "webdav"):
-                raise ValueError("Only the three reviewed applications are supported")
+            if not isinstance(name, str) or name not in apps:
+                raise ValueError(f"Unknown application: {name}")
             app = copy.deepcopy(apps[name])
             app["name"] = name
             app["identity"] = account_map[app["account"]]

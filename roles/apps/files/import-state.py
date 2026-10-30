@@ -50,7 +50,8 @@ if __name__ == "__main__":
                     "rsync", "-aH", "--numeric-ids",
                     f"--chown={app['identity']['uid']}:{app['identity']['gid']}",
                     "--chmod=go-rwx", "--exclude=.nas-app-imported",
-                    "--exclude=httpd.pid", "--exclude=transcodes", "--",
+                    *[f"--exclude={pattern}" for pattern in app.get("rsync_excludes", [])],
+                    "--",
                     str(source) + "/", str(target) + "/",
                 ], check=True)
                 marker = target / ".nas-app-imported"

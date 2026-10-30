@@ -32,9 +32,9 @@
     group: "{{ apps_app.account }}"
     mode: "0600"
 
-- name: Configure only Jellyfin GPU access
+- name: Configure declared GPU access
   ansible.builtin.include_tasks: gpu.yml
-  when: apps_app.name == 'jellyfin'
+  when: apps_app.gpu_device is defined
 
 - name: Add explicitly reviewed supplementary share-access groups
   ansible.builtin.user:

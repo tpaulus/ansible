@@ -46,11 +46,16 @@ apps_definitions:
   jellyfin:
     account: nas-jellyfin
     image: "{{ jellyfin_image }}"
+    backup_required: true
+    rsync_excludes: [transcodes]
     container_uid: 568
     container_gid: 568
     network: pasta
     ports: ["30013:8096/tcp", "30014:8920/tcp", "7359:7359/udp"]
     gpu_device: /dev/dri/by-path/pci-0000:00:02.0-render
+    gpu_container_device: /dev/dri/renderD128
+    gpu_device_access: rw
+    podman_args: [--group-add=keep-groups]
     # Approved Unix access mapping; conversion remains a separate operation.
     supplementary_groups: [nas-media]
     snapshot_targets: [/config, /jellyfin/jellyfin-web/ui]
@@ -97,6 +102,8 @@ apps_definitions:
   prometheus:
     account: nas-prometheus
     image: "{{ prometheus_image }}"
+    backup_required: true
+    rsync_excludes: []
     container_uid: 568
     container_gid: 568
     # Source really uses host networking, including localhost semantics.
@@ -160,14 +167,20 @@ apps_definitions:
   webdav:
     account: nas-webdav
     image: "{{ webdav_image }}"
+    backup_required: false
+    rsync_excludes: [httpd.pid]
     container_uid: 666
     container_gid: 666
     network: pasta
     # Protect DAV locks/config/auth, not all uploaded documents by surprise.
     # Svalbard document backup coverage remains a separate reviewed policy.
     snapshot_targets: [/state]
+    snapshot_private_files: [.config/apps/httpd.conf, .config/apps/webdavhtbasic]
     ports: ["30035:30035/tcp"]
     command: [httpd-foreground]
+    quadlet_home_mounts:
+      - {source: .config/apps/httpd.conf, target: /usr/local/apache2/conf/httpd.conf, access: ro}
+      - {source: .config/apps/webdavhtbasic, target: /etc/apache2/webdavhtbasic, access: ro}
     mounts:
       - {dataset_key: svalbard, target: /shares/Svalbard, access: rw}
       - path: /mnt/tank/apps/webdav-state

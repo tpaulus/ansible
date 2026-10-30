@@ -405,6 +405,13 @@ images and Alloy. Each application has a dedicated rootless account and
 lingering user manager. Generated Quadlet services are started, not enabled
 as ordinary installed services. Containers log to journald.
 
+App selection and Alloy labels derive from the configured application names;
+snapshot commands derive their choices from generated snapshot policies.
+Declare `backup_required`, `rsync_excludes`, and any `gpu_device`,
+`podman_args`, `quadlet_home_mounts`, or `snapshot_private_files` on the
+relevant app definition. Backup coverage and generated container/snapshot
+configuration consume that metadata.
+
 The Podman role orders only the dedicated application user managers after the
 host's `network-online.target`, covering application containers and their Podman
 exporters without delaying unrelated login sessions. Debian's enabled

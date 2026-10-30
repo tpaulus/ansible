@@ -97,12 +97,12 @@ def wait_ready(config):
     raise ValueError("Application did not become ready after snapshot restart")
 
 
-def rsync_arguments(source, destination, previous=None):
+def rsync_arguments(source, destination, previous=None, excludes=()):
     arguments = [
         "rsync", "-aH", "--numeric-ids", "--one-file-system", "--sparse", "--fsync",
-        "--chown=0:0", "--chmod=go-rwx", "--exclude=.zfs",
-        "--exclude=transcodes", "--exclude=*.candidate",
+        "--chown=0:0", "--chmod=go-rwx", "--exclude=.zfs", "--exclude=*.candidate",
     ]
+    arguments.extend(f"--exclude={pattern}" for pattern in excludes)
     if previous is not None:
         arguments.append(f"--link-dest={previous}")
     return arguments + ["--", str(source) + "/", str(destination) + "/"]
@@ -242,7 +242,8 @@ def perform_snapshot(config):
             raise ValueError("Stopped source snapshot is unavailable; live data will not be copied")
         destination = pending / source["import_name"]
         old = previous / source["import_name"] if previous is not None else None
-        arguments = rsync_arguments(snapshot_path, destination, old)
+        arguments = rsync_arguments(
+            snapshot_path, destination, old, config.get("rsync_excludes", []))
         dryrun = execute(arguments[:1] + ["--dry-run", "--stats"] + arguments[1:])
         match = re.search(r"^Total transferred file size: ([0-9,]+) bytes$", dryrun.stdout, re.MULTILINE)
         if match is None:
@@ -292,8 +293,8 @@ def load_config(config_path):
     return json.loads(config_path.read_text())
 
 
-def locked(config, operation):
-    if config["name"] not in ("jellyfin", "prometheus", "webdav"):
+def locked(config, operation, configured_apps, expected_name):
+    if config["name"] not in configured_apps or config["name"] != expected_name:
         raise ValueError("Unknown snapshot application")
     with open(f"/run/lock/app-snapshots-{config['name']}.lock", "w") as handle:
         fcntl.flock(handle, fcntl.LOCK_EX)
@@ -301,27 +302,31 @@ def locked(config, operation):
 
 
 def main():
-    if len(sys.argv) != 2 or sys.argv[1] not in ("jellyfin", "prometheus", "webdav", "prune-all"):
-        raise ValueError("usage: app-snapshots jellyfin|prometheus|webdav|prune-all")
     if os.geteuid() != 0:
         raise ValueError("App snapshots require root")
     os.umask(0o077)
     signal.signal(signal.SIGTERM, interrupted)
     signal.signal(signal.SIGINT, interrupted)
     directory = Path("/etc/apps/app-snapshots.d")
+    if len(sys.argv) != 2:
+        raise ValueError("usage: app-snapshots APP|prune-all")
+    if not directory.is_dir():
+        raise ValueError("App-snapshot configuration directory is missing")
+    configured_apps = {path.stem for path in directory.glob("*.json")}
+    if sys.argv[1] not in configured_apps | {"prune-all"}:
+        names = "|".join(sorted(configured_apps))
+        raise ValueError(f"usage: app-snapshots {names}|prune-all")
     if sys.argv[1] == "prune-all":
-        if not directory.is_dir():
-            raise ValueError("App-snapshot configuration directory is missing")
         failed = False
         for path in sorted(directory.glob("*.json")):
             try:
-                locked(load_config(path), prune)
+                locked(load_config(path), prune, configured_apps, path.stem)
             except (ValueError, KeyError, OSError, subprocess.CalledProcessError) as error:
                 print(f"App-snapshot cleanup failed for {path.name}: {error}", file=sys.stderr)
                 failed = True
         return int(failed)
     config = load_config(directory / f"{sys.argv[1]}.json")
-    result = locked(config, perform_snapshot)
+    result = locked(config, perform_snapshot, configured_apps, sys.argv[1])
     print(json.dumps(result))
     return 0
 
