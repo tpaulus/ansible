@@ -546,11 +546,9 @@ Maintenance requires an explicit `--limit` and processes hosts one at a time:
 
 ```sh
 ansible-playbook playbooks/operations/compute/install-updates.yml --limit HOSTNAME
-ansible-playbook playbooks/operations/compute/cleanup-docker.yml --limit HOSTNAME
 ansible-playbook playbooks/operations/storage/unlock-restic-backends.yml --limit STORAGE
 ```
 
-Docker cleanup removes stopped containers and all unused images, not volumes.
 For Debian 12 to 13 upgrades, run `dist-upgrade-pre.yml`, reboot if required,
 review third-party repositories, then run `dist-upgrade-exec.yml` with
 `dist_upgrade_third_party_reviewed=true`. Reboot into Debian 13 before
