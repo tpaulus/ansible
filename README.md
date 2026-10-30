@@ -316,28 +316,6 @@ Pool GUID checks and a small shell mount check prevent writing to the boot
 filesystem when a dataset is missing. Private datasets remain root-owned or
 owned by their declared application account.
 
-### One-time prefix migration
-
-Before provisioning an existing installation with these names, run:
-
-```sh
-ansible-playbook playbooks/operations/storage/migrate-prefixes.yml --limit STORAGE
-```
-
-This stops old `nas-*` timers/services and application Quadlets, removes their
-managed configuration/helpers, then provisions and starts the replacements.
-Expect a service interruption. Run it without tag filtering and let it finish;
-if interrupted, rerun it. It does not delete datasets, backups, application
-homes or maintenance history.
-
-Roles, variables and tags now use `apps_*`, `storage_*`, `backup_*`, etc.,
-rather than `nas_apps_*`, `nas_storage_*`, `nas_backup_*`. Application units
-are `jellyfin.service`, `prometheus.service` and `webdav.service`.
-Existing Unix accounts (`nas-jellyfin`, etc.), data paths, Vault variable names,
-the NetBox `nas` key, exported metric names and Loki's `nas-journal` job label
-are unchanged.
-Update private extra-vars files and wrappers to use the new variable/tag names.
-
 ### Explicit storage operations
 
 ```sh
