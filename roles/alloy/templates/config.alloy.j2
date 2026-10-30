@@ -50,12 +50,12 @@ loki.relabel "journal" {
 {% endfor %}
   rule {
     source_labels = ["__journal_container_name"]
-    regex         = "(jellyfin|prometheus|webdav)"
+    regex         = "({{ apps_definitions.keys() | map('regex_escape') | join('|') }})"
     target_label  = "container"
   }
   rule {
     source_labels = ["__journal_container_name"]
-    regex         = "(jellyfin|prometheus|webdav)"
+    regex         = "({{ apps_definitions.keys() | map('regex_escape') | join('|') }})"
     target_label  = "app"
   }
   rule {

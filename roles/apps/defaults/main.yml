@@ -5,7 +5,7 @@ apps_exporter_ports: {}
 apps_exporter_metrics_sources: []
 apps_definitions: {}
 apps_accounts: []
-apps_selected: [jellyfin, prometheus, webdav]
+apps_selected: "{{ apps_definitions.keys() | list }}"
 apps_create_datasets: false
 apps_import_confirm: ""
 apps_import_sources_stopped: false
