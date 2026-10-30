@@ -35,8 +35,8 @@ if ! op account get &> /dev/null; then
     exit 1
 fi
 
-# Print notice to TTY
-echo "Fetching secret from 1Password..." >/dev/tty
+# Print progress notice
+echo "Fetching secret from 1Password..." >&2
 
 # Attempt to read the secret
 if ! SECRET=$(op read "$VAULT_ID"); then
