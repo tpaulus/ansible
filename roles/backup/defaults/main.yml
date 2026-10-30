@@ -5,7 +5,6 @@ backup_metrics_dir: "{{ node_exporter_textfile_dir | default('/var/lib/node_expo
 backup_sources: []
 backup_required_apps: [jellyfin, prometheus]
 backup_max_concurrent: 2
-backup_mount_guard: /usr/local/libexec/mount-guard
 backup_snapshot_result_bin: /usr/local/libexec/app-snapshot-result.py
 backup_app_snapshots_bin: /usr/local/sbin/app-snapshots
 backup_lock: /run/lock/restic.lock

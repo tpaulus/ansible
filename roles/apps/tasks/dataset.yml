@@ -15,7 +15,7 @@
 - name: Check the existing parent before creating a child
   ansible.builtin.command:
     argv:
-      - "{{ apps_mount_guard }}"
+      - "{{ mount_guard_path }}"
       - "{{ apps_mount.path | dirname }}"
       - "{{ apps_mount.dataset | dirname }}"
   when: apps_dataset.rc != 0
@@ -65,7 +65,7 @@
 
 - name: Verify the exact mounted dataset before touching its root directory
   ansible.builtin.command:
-    argv: ["{{ apps_mount_guard }}", "{{ apps_mount.path }}", "{{ apps_mount.dataset }}"]
+    argv: ["{{ mount_guard_path }}", "{{ apps_mount.path }}", "{{ apps_mount.dataset }}"]
   changed_when: false
   check_mode: false
 

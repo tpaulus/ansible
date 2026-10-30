@@ -14,7 +14,7 @@
 
 - name: Verify all backing mounts before activating shares
   ansible.builtin.command:
-    argv: [/usr/local/libexec/mount-guard, "{{ item.path }}", "{{ item.dataset }}"]
+    argv: ["{{ mount_guard_path }}", "{{ item.path }}", "{{ item.dataset }}"]
   loop: "{{ config_resolved.mounts }}"
   changed_when: false
   when: not ansible_check_mode

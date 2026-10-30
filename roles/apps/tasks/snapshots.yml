@@ -44,7 +44,7 @@
 
 - name: Publish only selected app-snapshot policies
   ansible.builtin.copy:
-    content: "{{ item | snapshot_config(apps_snapshots, apps_mount_guard, apps_snapshot_retention_days) | to_nice_json }}\n"
+    content: "{{ item | snapshot_config(apps_snapshots, mount_guard_path, apps_snapshot_retention_days) | to_nice_json }}\n"
     dest: "/etc/apps/app-snapshots.d/{{ item.name }}.json"
     owner: root
     group: root

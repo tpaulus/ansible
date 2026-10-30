@@ -1,7 +1,7 @@
 ---
 - name: Verify retained application dataset mounts without creating or changing ownership
   ansible.builtin.command:
-    argv: ["{{ apps_mount_guard }}", "{{ item.path }}", "{{ item.dataset }}"]
+    argv: ["{{ mount_guard_path }}", "{{ item.path }}", "{{ item.dataset }}"]
   loop: "{{ apps_app.retained_datasets | default([]) }}"
   loop_control:
     label: "{{ item.dataset }}"

@@ -2,7 +2,7 @@
 - name: Verify root backing mount
   ansible.builtin.command:
     argv:
-      - /usr/local/libexec/mount-guard
+      - "{{ mount_guard_path }}"
       - "{{ accounts_root.path if accounts_root.kind == 'dataset' else accounts_root.path | dirname }}"
       - "{{ accounts_root.dataset }}"
   changed_when: false
@@ -26,7 +26,7 @@
 - name: Verify the existing root itself before changing ownership or modes
   ansible.builtin.command:
     argv:
-      - /usr/local/libexec/mount-guard
+      - "{{ mount_guard_path }}"
       - "{{ accounts_root.path }}"
       - "{{ accounts_root.dataset }}"
   changed_when: false

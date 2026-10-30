@@ -10,7 +10,7 @@ import subprocess
 import sys
 
 
-def prepare(plan):
+def prepare(plan, mount_guard_path):
     roots = plan["datasets"]
     entries = []
     expected = {key: set() for key in roots}
@@ -42,7 +42,7 @@ def prepare(plan):
         entries.append((path, entry, stat.S_ISLNK(metadata.st_mode)))
     for key, root in roots.items():
         subprocess.run(
-            ["/usr/local/libexec/mount-guard", root["path"], root["dataset"]],
+            [mount_guard_path, root["path"], root["dataset"]],
             check=True,
         )
         descendants = subprocess.run(
@@ -82,7 +82,7 @@ def apply(plan, entries):
             os.chmod(path, int(entry["mode"], 8), follow_symlinks=False)
 
 
-def prepare_recursive(roots):
+def prepare_recursive(roots, mount_guard_path):
     if not isinstance(roots, list) or not roots:
         raise ValueError("select at least one permission root")
     selected = {root["dataset"] for root in roots}
@@ -102,7 +102,7 @@ def prepare_recursive(roots):
             if Path(excluded).exists() and excluded not in paths:
                 raise ValueError(f"select existing child permission root {excluded}")
         subprocess.run(
-            ["/usr/local/libexec/mount-guard", str(path), root["dataset"]], check=True,
+            [mount_guard_path, str(path), root["dataset"]], check=True,
         )
         descendants = subprocess.run(
             ["zfs", "list", "-Hr", "-t", "filesystem", "-o", "name", root["dataset"]],
@@ -150,22 +150,23 @@ def apply_recursive(roots):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("manifest", type=Path)
+    parser.add_argument("--mount-guard", type=Path, required=True)
     parser.add_argument("--apply", action="store_true")
     parser.add_argument("--recursive", action="store_true")
     arguments = parser.parse_args()
     plan = json.loads(arguments.manifest.read_text())
     if arguments.apply:
         if arguments.recursive:
-            prepare_recursive(plan)
+            prepare_recursive(plan, arguments.mount_guard)
             apply_recursive(plan)
         else:
-            entries = prepare(plan)
+            entries = prepare(plan, arguments.mount_guard)
             apply(plan, entries)
     else:
         if arguments.recursive:
-            prepare_recursive(plan)
+            prepare_recursive(plan, arguments.mount_guard)
         else:
-            entries = prepare(plan)
+            entries = prepare(plan, arguments.mount_guard)
     count = len(plan) if arguments.recursive else len(entries)
     print(f"{'Applied' if arguments.apply else 'Validated'} {count} reviewed {'roots' if arguments.recursive else 'paths'}; ACL/xattr values were not deleted.")
 
