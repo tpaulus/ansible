@@ -132,9 +132,12 @@ run leaves swap tuning unchanged.
 
 ### Reboot monitoring
 
-The unattended-upgrades role already enables automatic reboots on non-K3s
-compute and storage hosts. K3s nodes leave reboot coordination to Kured. Firewall hosts are
-not included in this update or monitoring policy.
+Unattended upgrades automatically reboot non-K3s compute hosts at 04:00 when an
+update requires it. Storage hosts do not reboot automatically: after a kernel
+update, check `dkms status` and confirm the ZFS module for the updated kernel
+is available with `modinfo -k <updated-kernel-version> zfs` before rebooting
+manually. K3s nodes leave reboot coordination to Kured. Firewall hosts are not
+included in this update or monitoring policy.
 
 The `monitoring` tag installs `reboot-metrics.timer` on non-K3s compute and storage
 hosts. Every minute (starting 15 seconds after boot), it atomically publishes the
