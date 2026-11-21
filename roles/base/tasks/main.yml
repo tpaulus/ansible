@@ -16,7 +16,9 @@
         fail_msg: Compute and storage provisioning supports Debian-family systems only.
     - name: Install common tools
       ansible.builtin.apt:
-        name: "{{ base_packages + (['zsh'] if 'device_roles_storage' in group_names else []) }}"
+        name: "{{ base_packages
+          + (['zsh'] if 'device_roles_storage' in group_names else [])
+          + base_microcode_packages }}"
         state: present
         update_cache: true
         cache_valid_time: 3600
