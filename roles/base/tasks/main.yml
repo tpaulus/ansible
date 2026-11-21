@@ -24,11 +24,9 @@
         signed_by: /usr/share/keyrings/debian-archive-keyring.gpg
         state: present
       when: ansible_facts['distribution'] == 'Debian' and base_microcode_packages | length > 0
-      register: base_non_free_repo
-    - name: Refresh apt cache after enabling non-free-firmware
-      ansible.builtin.apt:
-        update_cache: true
-      when: base_non_free_repo is changed
+      notify: Update apt cache
+    - name: Refresh apt cache before installing packages
+      ansible.builtin.meta: flush_handlers
     - name: Install common tools
       ansible.builtin.apt:
         name: "{{ base_packages
