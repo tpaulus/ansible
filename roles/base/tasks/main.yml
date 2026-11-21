@@ -14,6 +14,21 @@
       ansible.builtin.assert:
         that: ansible_facts['os_family'] == 'Debian'
         fail_msg: Compute and storage provisioning supports Debian-family systems only.
+    - name: Enable Debian non-free-firmware component for CPU microcode
+      ansible.builtin.deb822_repository:
+        name: debian-non-free-firmware
+        types: deb
+        uris: "{{ base_debian_mirror }}"
+        suites: "{{ [ansible_facts['distribution_release'], ansible_facts['distribution_release'] ~ '-updates'] }}"
+        components: [non-free-firmware]
+        signed_by: /usr/share/keyrings/debian-archive-keyring.gpg
+        state: present
+      when: ansible_facts['distribution'] == 'Debian' and base_microcode_packages | length > 0
+      register: base_non_free_repo
+    - name: Refresh apt cache after enabling non-free-firmware
+      ansible.builtin.apt:
+        update_cache: true
+      when: base_non_free_repo is changed
     - name: Install common tools
       ansible.builtin.apt:
         name: "{{ base_packages

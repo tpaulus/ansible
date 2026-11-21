@@ -3,6 +3,7 @@ base_timezone: UTC
 base_packages: [net-tools, git, htop, curl, jq, gpg, ethtool]
 base_ntp_servers: time.cloudflare.com
 base_ntp_fallback: pool.ntp.org
+base_debian_mirror: http://deb.debian.org/debian
 # CPU microcode (non-free-firmware), selected by CPU vendor on x86 hosts
 base_microcode_packages: >-
   {{ ['intel-microcode'] if ansible_facts['architecture'] == 'x86_64' and 'GenuineIntel' in (ansible_facts['processor'] | default([]))
