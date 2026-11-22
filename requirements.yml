@@ -17,6 +17,6 @@ roles:
   - name: alvistack.podman
     src: https://github.com/alvistack/ansible-role-podman
     scm: git
-    version: 14.5.2
+    version: 15.0.0
   - name: xanmanning.k3s
     version: v3.6.4
