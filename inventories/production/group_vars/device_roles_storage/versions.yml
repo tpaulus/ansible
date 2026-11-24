@@ -4,7 +4,7 @@ jellyfin_image: "ghcr.io/jellyfin/jellyfin:12.4@sha256:fea863d0cd9ec445985d9c75f
 # renovate: datasource=docker depName=prom/prometheus
 prometheus_image: "prom/prometheus:v3.16.0@sha256:e04987641b57704f408e31f6373ba4138ecf27cb4a165d24aabb6c38fddd0f06"
 # renovate: datasource=docker depName=httpd
-webdav_image: "httpd:2.4.71@sha256:8e2a384a7c8c50a54b986f68b0f4ac62ea874e20ef194e0b047588adb7c52e80"
+webdav_image: "httpd:2.4.71@sha256:01c4f58e91f47ca02642f8a0c15a5deea67926da2a615accdc135080eb6b7aea"
 # renovate: datasource=github-releases depName=grafana/alloy extractVersion=^v(?<version>.*)$
 alloy_version: "1.22.0"
 # Podman and exporter major versions must be upgraded together.
